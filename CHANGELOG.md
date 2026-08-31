@@ -4,6 +4,53 @@ Alla nämnvärda ändringar i det här projektet dokumenteras här.
 Formatet följer i stort [Keep a Changelog](https://keepachangelog.com/),
 och projektet strävar efter [Semantic Versioning](https://semver.org/).
 
+# Changelog
+
+Alla nämnvärda ändringar i det här projektet dokumenteras här.
+Formatet följer i stort [Keep a Changelog](https://keepachangelog.com/),
+och projektet strävar efter [Semantic Versioning](https://semver.org/).
+
+## [1.1.0] - 2026-08-31
+
+### Rättat (viktigt!)
+- **Larmen (tekniskt larm, manipulationslarm, radiolarm, batteri) läste
+  fel property och visade därför aldrig ett riktigt larm.** De använde
+  property `538` med omvänd logik (`1=OK`, `0=larm`) — men det var fel
+  property helt och hållet. Bekräftat via Chrome DevTools mot enhetens
+  egen webb-UI: det rätta är property **`662`**, med **rak** logik
+  (`1=larm`, `0=OK`). Verifierat genom att fysiskt dra ur batteriet ur
+  en termostat och jämföra mot ett känt OK-rum.
+- Tidigare tester av `538` råkade alltid visa `1` (falskt "OK") eftersom
+  många fält i API:t defaultar till `1`, vilket gav en missvisande
+  bekräftelse av fel property.
+
+## [1.0.3] - 2026-08-31
+
+### Rättat
+- Tog bort en felaktig dubblett av `hacs.json` som legat inne i
+  `custom_components/uponor_r167/` (den ska bara ligga i repots
+  rotmapp) — det var den verkliga orsaken till att HACS aldrig visade
+  det uppdaterade namnet.
+
+## [1.0.2] - 2026-08-31
+
+### Ändrat
+- Rättade `hacs.json`s namn från gamla "Uponor R-167 (U@home)" till "Uponor",
+  så HACS-dashboarden visar rätt titel.
+
+### Känt problem
+- HACS-dashboarden visar "icon not available" trots att integrationen har
+  en egen `brand/icon.png`. Det är en öppen bugg i HACS självt
+  ([hacs/integration#5171](https://github.com/hacs/integration/issues/5171)) —
+  ikonen fungerar redan korrekt på Integrationssidan och enhetssidorna i HA.
+
+## [1.0.1] - 2026-08-31
+
+### Tillagt
+- Egen ikon (`brand/icon.png`, `brand/icon@2x.png`) som visas i HA:s
+  integrationslista och på enhetssidorna, utan att behöva en PR mot
+  home-assistant/brands (stöds från och med HA 2026.3).
+
 ## [1.0.0] - 2026-08-31
 
 Första fungerande versionen.

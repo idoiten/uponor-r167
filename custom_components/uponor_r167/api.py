@@ -153,7 +153,7 @@ class UponorApiClient:
     async def read(self, items: list[int] | list[tuple[int, str]]) -> dict[int, object]:
         """Läs objekt. Varje item är antingen ett id (property 85 antas)
         eller ett (id, property)-par för objekt som använder en annan
-        property, t.ex. larm som ligger på property 538 istället för 85."""
+        property, t.ex. larm som ligger på property 662 istället för 85."""
         normalized = [
             (i, "85") if isinstance(i, int) else (i[0], i[1]) for i in items
         ]
@@ -181,7 +181,7 @@ class UponorApiClient:
         if body.get("result") != "ok":
             raise UponorApiError(f"Skrivning misslyckades: {body}")
 
-    ALARM_PROPERTY = "538"
+    ALARM_PROPERTY = "662"
 
     def _all_ids(self) -> list[tuple[int, str]]:
         items: list[tuple[int, str]] = []
@@ -227,12 +227,12 @@ class UponorApiClient:
                     ),
                     rh_limit=_as_bool(values.get(settings_start + OFFSET_RH_LIMIT)),
                     floor_limit=_as_bool(values.get(settings_start + OFFSET_FLOOR_LIMIT)),
-                    technical_alarm=_as_alarm_bool(
+                    technical_alarm=_as_bool(
                         values.get(settings_start + OFFSET_TECHNICAL_ALARM)
                     ),
-                    tamper_alarm=_as_alarm_bool(values.get(settings_start + OFFSET_TAMPER)),
-                    rf_alarm=_as_alarm_bool(values.get(settings_start + OFFSET_RF_ALARM)),
-                    battery_alarm=_as_alarm_bool(
+                    tamper_alarm=_as_bool(values.get(settings_start + OFFSET_TAMPER)),
+                    rf_alarm=_as_bool(values.get(settings_start + OFFSET_RF_ALARM)),
+                    battery_alarm=_as_bool(
                         values.get(settings_start + OFFSET_BATTERY_ALARM)
                     ),
                 )
@@ -261,10 +261,10 @@ class UponorApiClient:
             room.room_in_demand = _as_bool(values.get(room.room_in_demand_id))
             room.rh_limit = _as_bool(values.get(room.rh_limit_id))
             room.floor_limit = _as_bool(values.get(room.floor_limit_id))
-            room.technical_alarm = _as_alarm_bool(values.get(room.technical_alarm_id))
-            room.tamper_alarm = _as_alarm_bool(values.get(room.tamper_alarm_id))
-            room.rf_alarm = _as_alarm_bool(values.get(room.rf_alarm_id))
-            room.battery_alarm = _as_alarm_bool(values.get(room.battery_alarm_id))
+            room.technical_alarm = _as_bool(values.get(room.technical_alarm_id))
+            room.tamper_alarm = _as_bool(values.get(room.tamper_alarm_id))
+            room.rf_alarm = _as_bool(values.get(room.rf_alarm_id))
+            room.battery_alarm = _as_bool(values.get(room.battery_alarm_id))
 
 
 def _as_float(value: object) -> float | None:
@@ -283,11 +283,3 @@ def _as_bool(value: object) -> bool | None:
     if f is None:
         return None
     return f != 0
-
-
-def _as_alarm_bool(value: object) -> bool | None:
-    """Larmfälten är omvända: 1 = OK/inget larm, 0 = larm aktivt."""
-    f = _as_float(value)
-    if f is None:
-        return None
-    return f == 0
