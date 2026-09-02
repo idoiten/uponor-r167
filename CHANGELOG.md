@@ -4,11 +4,23 @@ Alla nämnvärda ändringar i det här projektet dokumenteras här.
 Formatet följer i stort [Keep a Changelog](https://keepachangelog.com/),
 och projektet strävar efter [Semantic Versioning](https://semver.org/).
 
-# Changelog
+## [1.2.0] - 2026-09-02
 
-Alla nämnvärda ändringar i det här projektet dokumenteras här.
-Formatet följer i stort [Keep a Changelog](https://keepachangelog.com/),
-och projektet strävar efter [Semantic Versioning](https://semver.org/).
+### Rättat
+- **Skydd mot skräpdata från enheten under instabila perioder** (t.ex.
+  precis efter en fysisk omstart av R-167). Tidigare kunde en enstaka
+  udda avläsning tolkas som "flera tusen grader" eller trigga falska
+  larm samtidigt över hela huset. Nu:
+  - Larm godtar bara exakt `0` eller `1` — allt annat blir "okänt"
+    istället för falskt "på".
+  - Temperaturvärden utanför ett rimligt intervall (−30°C till 60°C)
+    avvisas och visas som "okänt" istället för det uppenbart felaktiga
+    talet.
+  - Startsökningen (som frågar ~300 objekt) delas nu upp i mindre
+    omgångar om 40 objekt i taget, istället för ett enda stort anrop.
+    Det är skonsammare mot enhetens svaga inbyggda webbserver och
+    minskar risken att hela integrationen fastnar vid uppstart, även
+    om webb-UI:t (som gör mindre anrop) fortsätter fungera som vanligt.
 
 ## [1.1.0] - 2026-08-31
 

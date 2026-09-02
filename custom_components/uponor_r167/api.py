@@ -205,8 +205,21 @@ class UponorApiClient:
         return items
 
     async def discover_and_read(self) -> list[Room]:
-        """Läs alla kanaler och returnera de som faktiskt har ett rumsnamn."""
-        values = await self.read(self._all_ids())
+        """Läs alla kanaler och returnera de som faktiskt har ett rumsnamn.
+
+        Frågar i mindre omgångar (istället för ett enda jätteanrop med
+        alla ~300 objekt på en gång) – enheten har visat sig kunna
+        fastna på ett för stort anrop, särskilt under en instabil
+        period (t.ex. precis efter en omstart), även när den fortsatt
+        svarar fint på webb-UI:ts egna mindre anrop.
+        """
+        all_items = self._all_ids()
+        chunk_size = 40
+        values: dict[int, object] = {}
+        for i in range(0, len(all_items), chunk_size):
+            chunk = all_items[i : i + chunk_size]
+            values.update(await self.read(chunk))
+
         rooms: list[Room] = []
         for n in range(self.max_channels):
             settings_start = CHANNEL_STRIDE * n
@@ -218,10 +231,10 @@ class UponorApiClient:
                 Room(
                     settings_start=settings_start,
                     name=name.strip(),
-                    actual=_as_float(values.get(data_start + OFFSET_ACTUAL)),
-                    setpoint=_as_float(values.get(settings_start + OFFSET_SETPOINT)),
-                    min_temp=_as_float(values.get(settings_start + OFFSET_MIN)),
-                    max_temp=_as_float(values.get(settings_start + OFFSET_MAX)),
+                    actual=_as_temperature(values.get(data_start + OFFSET_ACTUAL)),
+                    setpoint=_as_temperature(values.get(settings_start + OFFSET_SETPOINT)),
+                    min_temp=_as_temperature(values.get(settings_start + OFFSET_MIN)),
+                    max_temp=_as_temperature(values.get(settings_start + OFFSET_MAX)),
                     room_in_demand=_as_bool(
                         values.get(settings_start + OFFSET_ROOM_IN_DEMAND)
                     ),
@@ -254,10 +267,14 @@ class UponorApiClient:
                 (room.rf_alarm_id, self.ALARM_PROPERTY),
                 (room.battery_alarm_id, self.ALARM_PROPERTY),
             ]
-        values = await self.read(items)
+        chunk_size = 40
+        values: dict[int, object] = {}
+        for i in range(0, len(items), chunk_size):
+            chunk = items[i : i + chunk_size]
+            values.update(await self.read(chunk))
         for room in rooms:
-            room.actual = _as_float(values.get(room.actual_id))
-            room.setpoint = _as_float(values.get(room.setpoint_id))
+            room.actual = _as_temperature(values.get(room.actual_id))
+            room.setpoint = _as_temperature(values.get(room.setpoint_id))
             room.room_in_demand = _as_bool(values.get(room.room_in_demand_id))
             room.rh_limit = _as_bool(values.get(room.rh_limit_id))
             room.floor_limit = _as_bool(values.get(room.floor_limit_id))
@@ -278,8 +295,29 @@ def _as_float(value: object) -> float | None:
     return None
 
 
-def _as_bool(value: object) -> bool | None:
+def _as_temperature(value: object) -> float | None:
+    """Som _as_float, men avvisar orimliga värden (t.ex. skräpdata som
+    visar sig som flera tusen grader) istället för att visa dem rakt av."""
     f = _as_float(value)
     if f is None:
         return None
-    return f != 0
+    if f < -30 or f > 60:
+        return None
+    return f
+
+
+def _as_bool(value: object) -> bool | None:
+    """Endast exakt 0 eller 1 räknas som ett giltigt booleskt värde.
+
+    Enheten har visat sig kunna svara med skräpvärden under instabila
+    perioder (t.ex. precis efter en omstart). Om vi tolkade *allt* som
+    inte är exakt 0 som "på" skulle sådan skräpdata kunna se ut som ett
+    gäng samtidiga larm. Ett okänt/orimligt värde ger hellre "okänt"
+    (None) än ett falskt larm.
+    """
+    f = _as_float(value)
+    if f == 0:
+        return False
+    if f == 1:
+        return True
+    return None
