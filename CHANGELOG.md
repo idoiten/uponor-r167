@@ -4,6 +4,21 @@ Alla nämnvärda ändringar i det här projektet dokumenteras här.
 Formatet följer i stort [Keep a Changelog](https://keepachangelog.com/),
 och projektet strävar efter [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-09-02
+
+### Tillagt
+- **Skydd mot skräpdata vid uppstart: vänta och försök igen.**
+  Rumsupptäckten (`discover_and_read`) körs nu upp till **5 försök**
+  med **10 sekunders paus** mellan varje, om den misstänker skräpdata
+  (t.ex. ett rum vars namn-fält innehöll något annat än ett giltigt
+  textnamn, som "1.1") eller inte hittade några rum alls. Ett tomt
+  fält (oanvänd kanal) räknas inte som skräp — bara ett fält som
+  faktiskt innehöll något ogiltigt.
+- Om alla 5 försök misslyckas ger integrationen upp helt istället för
+  att starta med en ofullständig/felaktig bild av rummen — det
+  triggar Home Assistants inbyggda `setup_retry`-mekanism, som
+  fortsätter försöka automatiskt med stigande mellanrum.
+
 ## [1.2.1] - 2026-09-02
 
 ### Rättat
