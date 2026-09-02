@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 
 import aiohttp
@@ -225,7 +226,7 @@ class UponorApiClient:
             settings_start = CHANNEL_STRIDE * n
             data_start = settings_start + DATA_OFFSET
             name = values.get(data_start + OFFSET_NAME)
-            if not isinstance(name, str) or not name.strip():
+            if not _looks_like_room_name(name):
                 continue
             rooms.append(
                 Room(
@@ -284,6 +285,29 @@ class UponorApiClient:
             room.battery_alarm = _as_bool(values.get(room.battery_alarm_id))
 
 
+_NUMERIC_ONLY = re.compile(r"^[\d.\-]+$")
+
+
+def _looks_like_room_name(value: object) -> bool:
+    """Ett riktigt rumsnamn är alltid människo-skrivet text.
+
+    Enheten har visat sig kunna svara med skräpdata under instabila
+    perioder – bland annat ett värde som råkar se ut som "1.1" eller
+    "1.3" (troligen ett feltolkat numeriskt fält) istället för det
+    riktiga rumsnamnet. Ett rent numeriskt "namn" är aldrig giltigt,
+    så vi avvisar sådana istället för att skapa/döpa om ett rum till
+    skräp.
+    """
+    if not isinstance(value, str):
+        return False
+    stripped = value.strip()
+    if not stripped:
+        return False
+    if _NUMERIC_ONLY.match(stripped):
+        return False
+    return True
+
+
 def _as_float(value: object) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
@@ -297,11 +321,14 @@ def _as_float(value: object) -> float | None:
 
 def _as_temperature(value: object) -> float | None:
     """Som _as_float, men avvisar orimliga värden (t.ex. skräpdata som
-    visar sig som flera tusen grader) istället för att visa dem rakt av."""
+    visar sig som flera tusen grader, eller ett golvvärmt rum som
+    visar exakt 0,0°C) istället för att visa dem rakt av."""
     f = _as_float(value)
     if f is None:
         return None
     if f < -30 or f > 60:
+        return None
+    if f == 0:
         return None
     return f
 
