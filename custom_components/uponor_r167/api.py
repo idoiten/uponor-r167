@@ -30,6 +30,13 @@ class UponorApiError(Exception):
     """Fel vid kommunikation med R-167."""
 
 
+# Vid uppstart: hur många gånger vi försöker om vi misstänker att
+# enheten svarade med skräpdata (t.ex. för att den själv fortfarande
+# höll på att starta upp), och hur länge vi väntar mellan försöken.
+DISCOVERY_MAX_ATTEMPTS = 5
+DISCOVERY_RETRY_DELAY = 10  # sekunder
+
+
 @dataclass
 class Room:
     """En termostat-kanal (rum)."""
@@ -208,12 +215,31 @@ class UponorApiClient:
     async def discover_and_read(self) -> list[Room]:
         """Läs alla kanaler och returnera de som faktiskt har ett rumsnamn.
 
-        Frågar i mindre omgångar (istället för ett enda jätteanrop med
-        alla ~300 objekt på en gång) – enheten har visat sig kunna
-        fastna på ett för stort anrop, särskilt under en instabil
-        period (t.ex. precis efter en omstart), även när den fortsatt
-        svarar fint på webb-UI:ts egna mindre anrop.
+        Enheten har visat sig kunna svara med skräpdata (bl.a. rena
+        siffror istället för riktiga rumsnamn) om den frågas medan den
+        själv fortfarande håller på att starta upp – t.ex. om HA
+        laddar om integrationen precis efter en strömavbrott/omstart
+        av R-167. Om vi upptäcker sådant skräp, eller inte hittar
+        några rum alls, väntar vi och försöker igen ett antal gånger
+        innan vi ger upp helt (vilket gör att HA:s vanliga
+        setup_retry-mekanism tar över och försöker igen senare).
         """
+        last_room_count = 0
+        for attempt in range(DISCOVERY_MAX_ATTEMPTS):
+            rooms, garbage_detected = await self._discover_once()
+            last_room_count = len(rooms)
+            if rooms and not garbage_detected:
+                return rooms
+            if attempt < DISCOVERY_MAX_ATTEMPTS - 1:
+                await asyncio.sleep(DISCOVERY_RETRY_DELAY)
+        raise UponorApiError(
+            f"Enheten svarade med skräpdata eller inga rum hittades efter "
+            f"{DISCOVERY_MAX_ATTEMPTS} försök (senast {last_room_count} rum "
+            f"hittade). Enheten verkar inte vara redo."
+        )
+
+    async def _discover_once(self) -> tuple[list[Room], bool]:
+        """En enskild sökning. Returnerar (rum, hittades_skräp)."""
         all_items = self._all_ids()
         chunk_size = 40
         values: dict[int, object] = {}
@@ -222,11 +248,17 @@ class UponorApiClient:
             values.update(await self.read(chunk))
 
         rooms: list[Room] = []
+        garbage_detected = False
         for n in range(self.max_channels):
             settings_start = CHANNEL_STRIDE * n
             data_start = settings_start + DATA_OFFSET
             name = values.get(data_start + OFFSET_NAME)
             if not _looks_like_room_name(name):
+                # Ett tomt/oanvänt fält är helt normalt. Men om det
+                # faktiskt innehöll NÅGOT (bara inte ett giltigt namn)
+                # är det ett tecken på skräpdata, inte en oanvänd kanal.
+                if isinstance(name, str) and name.strip():
+                    garbage_detected = True
                 continue
             rooms.append(
                 Room(
@@ -251,7 +283,7 @@ class UponorApiClient:
                     ),
                 )
             )
-        return rooms
+        return rooms, garbage_detected
 
     async def refresh_rooms(self, rooms: list[Room]) -> None:
         """Uppdatera actual/setpoint/status/larm (inte min/max/namn) för redan kända rum."""
