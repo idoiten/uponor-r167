@@ -4,6 +4,27 @@ Alla nämnvärda ändringar i det här projektet dokumenteras här.
 Formatet följer i stort [Keep a Changelog](https://keepachangelog.com/),
 och projektet strävar efter [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - 2026-09-02
+
+### Rättat
+- **Rumsnamn kunde bli skräp om integrationen laddades om medan R-167
+  själv fortfarande höll på att starta upp** (bekräftat via ett
+  medvetet stresstest: nätverkskabeln drogs ur och sattes tillbaka,
+  och integrationen laddades om innan enheten hunnit bli klar). Under
+  det fönstret svarar enhetens webbserver, men med oinitierade
+  default-värden istället för riktig data — vilket bland annat kunde
+  döpa om ett riktigt rum (t.ex. Klädvård) till "1.1" i HA:s
+  enhetsregister, eftersom koden godtog blint vilken icke-tom sträng
+  som helst. Rena siffervärden (som "1.1", "1.3") avvisas nu explicit;
+  ett rum med ett sådant "namn" hoppas över den sökningen istället för
+  att skapas/döpas om till skräp.
+- Samma stresstest gav också en orimlig temperaturavläsning (0,0°C för
+  ett rum utan aktivt radio- eller batterilarm). Temperaturvärden på
+  exakt **0,0°C avvisas nu också**, utöver det tidigare intervallfiltret
+  (−30°C till 60°C) — ett golvvärmt rum ska aldrig visa exakt 0°C i
+  praktiken, ett sådant värde är alltid skräpdata, inte en verklig
+  avläsning.
+
 ## [1.2.0] - 2026-09-02
 
 ### Rättat
