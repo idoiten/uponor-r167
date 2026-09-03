@@ -55,6 +55,13 @@ class Room:
     rf_alarm: bool | None = None
     battery_alarm: bool | None = None
 
+    # Obekräftade "kandidatvärden" för larm-debounce (se _debounce_bool).
+    # Inte tänkta att läsas direkt av entiteter – bara internt bokföring.
+    _pending_technical_alarm: bool | None = None
+    _pending_tamper_alarm: bool | None = None
+    _pending_rf_alarm: bool | None = None
+    _pending_battery_alarm: bool | None = None
+
     @property
     def unique_id(self) -> str:
         return f"uponor_r167_{self.settings_start}"
@@ -306,15 +313,56 @@ class UponorApiClient:
             chunk = items[i : i + chunk_size]
             values.update(await self.read(chunk))
         for room in rooms:
-            room.actual = _as_temperature(values.get(room.actual_id))
-            room.setpoint = _as_temperature(values.get(room.setpoint_id))
+            # Ärvärde: avvisa en ny avläsning som avviker mer än 1°C från
+            # senast bekräftade värde – ett golvvärmt rum ändras aldrig
+            # så snabbt i praktiken, så ett större hopp är skräpdata.
+            new_actual = _as_temperature(values.get(room.actual_id))
+            if new_actual is not None:
+                if room.actual is None or abs(new_actual - room.actual) <= 1.0:
+                    room.actual = new_actual
+                # annars: behåll det gamla, bekräftade värdet
+
+            # Börvärde: avvisa värden utanför rummets egna min/max-gränser
+            # (hämtade en gång vid uppstart) – t.ex. -17,8°C skulle
+            # fångas här även om det klarar det generella 5–40°C-filtret
+            # för ett annat rum med bredare gränser.
+            new_setpoint = _as_temperature(values.get(room.setpoint_id))
+            if new_setpoint is not None:
+                within_limits = True
+                if room.min_temp is not None and new_setpoint < room.min_temp:
+                    within_limits = False
+                if room.max_temp is not None and new_setpoint > room.max_temp:
+                    within_limits = False
+                if within_limits:
+                    room.setpoint = new_setpoint
+                # annars: behåll det gamla, bekräftade värdet
+
             room.room_in_demand = _as_bool(values.get(room.room_in_demand_id))
             room.rh_limit = _as_bool(values.get(room.rh_limit_id))
             room.floor_limit = _as_bool(values.get(room.floor_limit_id))
-            room.technical_alarm = _as_bool(values.get(room.technical_alarm_id))
-            room.tamper_alarm = _as_bool(values.get(room.tamper_alarm_id))
-            room.rf_alarm = _as_bool(values.get(room.rf_alarm_id))
-            room.battery_alarm = _as_bool(values.get(room.battery_alarm_id))
+
+            # Larm: kräv att samma värde ses två pollningar i rad innan
+            # det visas/triggar automationer (se _debounce_bool).
+            room.technical_alarm, room._pending_technical_alarm = _debounce_bool(
+                room.technical_alarm,
+                room._pending_technical_alarm,
+                _as_bool(values.get(room.technical_alarm_id)),
+            )
+            room.tamper_alarm, room._pending_tamper_alarm = _debounce_bool(
+                room.tamper_alarm,
+                room._pending_tamper_alarm,
+                _as_bool(values.get(room.tamper_alarm_id)),
+            )
+            room.rf_alarm, room._pending_rf_alarm = _debounce_bool(
+                room.rf_alarm,
+                room._pending_rf_alarm,
+                _as_bool(values.get(room.rf_alarm_id)),
+            )
+            room.battery_alarm, room._pending_battery_alarm = _debounce_bool(
+                room.battery_alarm,
+                room._pending_battery_alarm,
+                _as_bool(values.get(room.battery_alarm_id)),
+            )
 
 
 _NUMERIC_ONLY = re.compile(r"^[\d.\-]+$")
@@ -352,17 +400,44 @@ def _as_float(value: object) -> float | None:
 
 
 def _as_temperature(value: object) -> float | None:
-    """Som _as_float, men avvisar orimliga värden (t.ex. skräpdata som
-    visar sig som flera tusen grader, eller ett golvvärmt rum som
-    visar exakt 0,0°C) istället för att visa dem rakt av."""
+    """Som _as_float, men avvisar orimliga värden för en rumstemperatur
+    (ärvärde, börvärde, min/max) – gäller allt utom utetemperaturen,
+    som har sin egen, bredare gräns (se _as_outdoor_temperature)."""
     f = _as_float(value)
     if f is None:
         return None
-    if f < -30 or f > 60:
-        return None
-    if f == 0:
+    if f < 5 or f > 40:
         return None
     return f
+
+
+def _as_outdoor_temperature(value: object) -> float | None:
+    """Som _as_temperature, men med en bredare gräns eftersom
+    utetemperaturen rimligen kan bli betydligt kallare än ett rum."""
+    f = _as_float(value)
+    if f is None:
+        return None
+    if f < -30 or f > 40:
+        return None
+    return f
+
+
+def _debounce_bool(
+    current: bool | None, pending: bool | None, new: bool | None
+) -> tuple[bool | None, bool | None]:
+    """Kräver att ett nytt larmvärde bekräftas av två pollningar i rad
+    innan det visas/triggar automationer, för att skydda mot enstaka
+    skräpavläsningar (t.ex. precis efter att enheten återhämtat sig).
+
+    Returnerar (nytt_bekräftat_värde, ny_kandidat).
+    """
+    if new is None:
+        return current, pending  # okänt/ej tolkningsbart svar – ingen ändring
+    if new == current:
+        return current, None  # matchar redan bekräftat värde
+    if new == pending:
+        return new, None  # bekräftat av två pollningar i rad
+    return current, new  # ny, obekräftad kandidat
 
 
 def _as_bool(value: object) -> bool | None:
