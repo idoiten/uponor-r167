@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/),
 and the project aims for [Semantic Versioning](https://semver.org/).
 
+## [1.5.1] - 2026-09-03
+
+### Changed
+- **Entity names now follow Home Assistant's language setting.**
+  1.5.0 only translated the config/options flow UI text - entity
+  friendly names (e.g. "Temperature", "Rf alarm", "Battery") were
+  still hardcoded in English regardless of HA's language. Entities
+  now use HA's native `translation_key` mechanism instead of
+  hardcoded names, with the actual text moved into the `entity`
+  section of `strings.json` / `translations/en.json` /
+  `translations/sv.json`. A Swedish-language HA instance will now
+  show Swedish entity names (e.g. "Temperatur", "Radiolarm",
+  "Batteri") automatically, without any code changes.
+
 ## [1.5.0] - 2026-09-03
 
 ### Added
