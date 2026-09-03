@@ -15,11 +15,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import UponorCoordinator
 from .api import Room
-from .const import DOMAIN
-
-# Id:n bekräftade via manuell jämförelse mot kända värden.
-OUTDOOR_TEMP_ID = 67           # momentan/verklig utetemperatur
-AVG_INDOOR_TEMP_ID = 37
+from .const import AVG_INDOOR_TEMP_ID, DOMAIN, OUTDOOR_TEMP_ID
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
