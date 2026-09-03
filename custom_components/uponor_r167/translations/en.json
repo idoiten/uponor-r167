@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Uponor",
-        "description": "Ange IP-adressen till din R-167-modul (t.ex. 10.10.10.151).",
+        "description": "Enter the IP address of your R-167 module (e.g. 10.10.10.151).",
         "data": {
           "host": "Host",
           "max_channels": "Max channels",
@@ -12,17 +12,17 @@
       }
     },
     "error": {
-      "cannot_connect": "Kunde inte ansluta till enheten. Kontrollera IP-adressen.",
-      "no_rooms_found": "Inga rum hittades. Prova att öka antalet kanaler."
+      "cannot_connect": "Could not connect to the device. Check the IP address.",
+      "no_rooms_found": "No rooms found. Try increasing the number of channels."
     },
     "abort": {
-      "already_configured": "Den här enheten är redan konfigurerad."
+      "already_configured": "This device is already configured."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Uponor - inställningar",
+        "title": "Uponor - Settings",
         "data": {
           "max_channels": "Max channels",
           "scan_interval": "Scan interval"
