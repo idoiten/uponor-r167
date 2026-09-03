@@ -58,6 +58,7 @@ class UponorProblemSensor(CoordinatorEntity[UponorCoordinator], BinarySensorEnti
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
+    _attr_has_entity_name = True
     _attr_translation_key = "api_status"
 
     def __init__(self, coordinator: UponorCoordinator, entry: ConfigEntry) -> None:
