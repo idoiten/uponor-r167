@@ -1,4 +1,4 @@
-"""Systemsensorer: utetemperatur (dämpad) och medelinomhustemperatur."""
+"""System sensors: outdoor temperature (damped) and average indoor temperature."""
 
 from __future__ import annotations
 
@@ -19,31 +19,34 @@ from .const import AVG_INDOOR_TEMP_ID, DOMAIN, OUTDOOR_TEMP_ID
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
-    coordinator: UponorCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    data = hass.data[DOMAIN][entry.entry_id]
+    coordinator: UponorCoordinator = data["coordinator"]
+    gateway_device_id: str = data["gateway_device_id"]
     entities: list[SensorEntity] = [
         UponorSystemSensor(
             coordinator,
             entry,
             obj_id=OUTDOOR_TEMP_ID,
-            name="Utetemperatur",
+            name="Outdoor Temperature",
             unique_suffix="outdoor_temp",
         ),
         UponorSystemSensor(
             coordinator,
             entry,
             obj_id=AVG_INDOOR_TEMP_ID,
-            name="Medelinomhustemperatur",
+            name="Average Indoor Temperature",
             unique_suffix="avg_indoor_temp",
         ),
     ]
     entities += [
-        UponorRoomTemperature(coordinator, entry, room) for room in coordinator.rooms
+        UponorRoomTemperature(coordinator, entry, room, gateway_device_id)
+        for room in coordinator.rooms
     ]
     async_add_entities(entities)
 
 
 class UponorSystemSensor(CoordinatorEntity[UponorCoordinator], SensorEntity):
-    """En enskild systemövergripande temperatur (inte knuten till ett rum)."""
+    """A single system-wide temperature (not tied to a room)."""
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
@@ -75,15 +78,21 @@ class UponorSystemSensor(CoordinatorEntity[UponorCoordinator], SensorEntity):
 
 
 class UponorRoomTemperature(CoordinatorEntity[UponorCoordinator], SensorEntity):
-    """Ärvärdet (aktuell temperatur) för ett enskilt rum, som ren sensor."""
+    """The measured (actual) temperature for a single room, as a plain sensor."""
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_has_entity_name = True
-    _attr_name = "Temperatur"
+    _attr_name = "Temperature"
 
-    def __init__(self, coordinator: UponorCoordinator, entry: ConfigEntry, room: Room) -> None:
+    def __init__(
+        self,
+        coordinator: UponorCoordinator,
+        entry: ConfigEntry,
+        room: Room,
+        gateway_device_id: str,
+    ) -> None:
         super().__init__(coordinator)
         self._settings_start = room.settings_start
         self._attr_unique_id = f"{room.unique_id}_temperature"
@@ -91,8 +100,8 @@ class UponorRoomTemperature(CoordinatorEntity[UponorCoordinator], SensorEntity):
             identifiers={(DOMAIN, room.unique_id)},
             name=room.name,
             manufacturer="Uponor",
-            model="Termostat (Smatrix Wave)",
-            via_device=(DOMAIN, entry.data["host"]),
+            model="Thermostat (Smatrix Wave)",
+            via_device_id=gateway_device_id,
         )
 
     @property
