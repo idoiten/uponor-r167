@@ -12,20 +12,22 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import UponorApiClient, UponorApiError
+from .api import UponorApiClient, UponorApiError, _as_outdoor_temperature, _as_temperature
 from .const import (
+    AVG_INDOOR_TEMP_ID,
     CONF_MAX_CHANNELS,
     CONF_SCAN_INTERVAL,
     DEFAULT_MAX_CHANNELS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    OUTDOOR_TEMP_ID,
 )
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["climate", "sensor", "binary_sensor"]
 
 # Systemövergripande värden (inte knutna till ett specifikt rum).
-SYSTEM_VALUE_IDS = [37, 67]  # medelinomhustemp, utetemp (momentan)
+SYSTEM_VALUE_IDS = [AVG_INDOOR_TEMP_ID, OUTDOOR_TEMP_ID]
 
 
 class UponorCoordinator(DataUpdateCoordinator):
@@ -55,7 +57,15 @@ class UponorCoordinator(DataUpdateCoordinator):
                 )
             else:
                 await self.client.refresh_rooms(self.rooms)
-            self.system_values = await self.client.read(SYSTEM_VALUE_IDS)
+            raw_system_values = await self.client.read(SYSTEM_VALUE_IDS)
+            self.system_values = {
+                OUTDOOR_TEMP_ID: _as_outdoor_temperature(
+                    raw_system_values.get(OUTDOOR_TEMP_ID)
+                ),
+                AVG_INDOOR_TEMP_ID: _as_temperature(
+                    raw_system_values.get(AVG_INDOOR_TEMP_ID)
+                ),
+            }
         except UponorApiError as err:
             raise UpdateFailed(str(err)) from err
         return self.rooms
