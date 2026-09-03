@@ -29,5 +29,41 @@
         }
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "outdoor_temperature": {
+        "name": "Utetemperatur"
+      },
+      "avg_indoor_temperature": {
+        "name": "Medelinomhustemperatur"
+      },
+      "temperature": {
+        "name": "Temperatur"
+      }
+    },
+    "binary_sensor": {
+      "api_status": {
+        "name": "API-status"
+      },
+      "moisture": {
+        "name": "Fukt"
+      },
+      "floor": {
+        "name": "Golv"
+      },
+      "technical_alarm": {
+        "name": "Tekniskt larm"
+      },
+      "tamper_alarm": {
+        "name": "Manipulationslarm"
+      },
+      "rf_alarm": {
+        "name": "Radiolarm"
+      },
+      "battery": {
+        "name": "Batteri"
+      }
+    }
   }
 }
