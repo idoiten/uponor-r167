@@ -4,6 +4,35 @@ Alla nämnvärda ändringar i det här projektet dokumenteras här.
 Formatet följer i stort [Keep a Changelog](https://keepachangelog.com/),
 och projektet strävar efter [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-09-02
+
+### Tillagt
+- **Skydd mot skräpdata under normal drift, inte bara vid uppstart.**
+  1.3.0 skyddade bara den engångskörning som upptäcker rummen. Efter
+  ett stresstest (modulen startades om medan integrationen redan var
+  igång) visade det sig att den vanliga, löpande pollningen (var 60:e
+  sekund) saknade motsvarande skydd — vilket kunde ge falska larm och
+  ett börvärde på −17,8°C. Tre nya skydd i den löpande pollningen:
+  - **Larm kräver bekräftelse två pollningar i rad** innan de visas
+    eller triggar automationer. En enstaka udda avläsning (t.ex. ett
+    larm som glimtar till en gång och sedan går tillbaka) ignoreras
+    tyst istället för att synas i HA.
+  - **Ärvärdet avvisar en ny avläsning som avviker mer än 1°C** från
+    senast bekräftade värde — ett golvvärmt rum ändras aldrig så
+    snabbt i verkligheten.
+  - **Börvärdet valideras mot rummets egna min/max-gränser** (hämtade
+    en gång vid uppstart) istället för bara det generella intervallet.
+    Det hade fångat −17,8°C direkt, eftersom det ligger långt utanför
+    ett rimligt 15–25°C-spann.
+
+### Ändrat
+- **Snävare temperaturgränser.** Rumstemperaturer (ärvärde, börvärde,
+  min/max) godtar nu **5–40°C** istället för −30–60°C. Utetemperaturen
+  har en egen, bredare gräns på **−30–40°C**, eftersom den rimligen
+  kan bli betydligt kallare än ett rum. Medelinomhustemperaturen och
+  utetemperaturen (systemsensorerna) fick tidigare **ingen**
+  rimlighetskontroll alls — det har de nu också.
+
 ## [1.3.0] - 2026-09-02
 
 ### Tillagt
