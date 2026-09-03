@@ -29,5 +29,41 @@
         }
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "outdoor_temperature": {
+        "name": "Outdoor Temperature"
+      },
+      "avg_indoor_temperature": {
+        "name": "Average Indoor Temperature"
+      },
+      "temperature": {
+        "name": "Temperature"
+      }
+    },
+    "binary_sensor": {
+      "api_status": {
+        "name": "API Status"
+      },
+      "moisture": {
+        "name": "Moisture"
+      },
+      "floor": {
+        "name": "Floor"
+      },
+      "technical_alarm": {
+        "name": "Technical alarm"
+      },
+      "tamper_alarm": {
+        "name": "Tamper alarm"
+      },
+      "rf_alarm": {
+        "name": "Rf alarm"
+      },
+      "battery": {
+        "name": "Battery"
+      }
+    }
   }
 }
