@@ -25,3 +25,7 @@ OFFSET_RF_ALARM = 20
 OFFSET_BATTERY_ALARM = 21
 OFFSET_ACTUAL = 3
 OFFSET_NAME = 7
+
+# Systemövergripande temperaturvärden (inte knutna till ett specifikt rum).
+OUTDOOR_TEMP_ID = 67
+AVG_INDOOR_TEMP_ID = 37
