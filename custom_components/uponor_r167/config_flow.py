@@ -1,4 +1,4 @@
-"""Config flow för Uponor R-167."""
+"""Config flow for Uponor R-167."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ STEP_USER_SCHEMA = vol.Schema(
 
 
 class UponorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Enkelt en-stegs-formulär: bara IP-adressen behövs."""
+    """Simple single-step form: only the IP address is needed."""
 
     VERSION = 1
 
@@ -67,7 +67,7 @@ class UponorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class UponorOptionsFlow(config_entries.OptionsFlow):
-    """Låter användaren ändra max_channels/scan_interval i efterhand."""
+    """Lets the user change max_channels/scan_interval after setup."""
 
     async def async_step_init(self, user_input=None):
         if user_input is not None:
