@@ -1,4 +1,4 @@
-"""Problem-sensor: visar om senaste anropet mot R-167 misslyckades."""
+"""Problem sensor: shows whether the last call to the R-167 failed."""
 
 from __future__ import annotations
 
@@ -18,32 +18,34 @@ from .const import DOMAIN
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
-    coordinator: UponorCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    data = hass.data[DOMAIN][entry.entry_id]
+    coordinator: UponorCoordinator = data["coordinator"]
+    gateway_device_id: str = data["gateway_device_id"]
     entities: list[BinarySensorEntity] = [UponorProblemSensor(coordinator, entry)]
     for room in coordinator.rooms:
         entities += [
             UponorRoomAlarm(
-                coordinator, entry, room, "rh_limit", "fukt",
+                coordinator, entry, room, gateway_device_id, "rh_limit", "moisture",
                 BinarySensorDeviceClass.MOISTURE,
             ),
             UponorRoomAlarm(
-                coordinator, entry, room, "floor_limit", "golv",
+                coordinator, entry, room, gateway_device_id, "floor_limit", "floor",
                 BinarySensorDeviceClass.PROBLEM,
             ),
             UponorRoomAlarm(
-                coordinator, entry, room, "technical_alarm", "tekniskt larm",
+                coordinator, entry, room, gateway_device_id, "technical_alarm", "technical alarm",
                 BinarySensorDeviceClass.PROBLEM,
             ),
             UponorRoomAlarm(
-                coordinator, entry, room, "tamper_alarm", "manipulationslarm",
+                coordinator, entry, room, gateway_device_id, "tamper_alarm", "tamper alarm",
                 BinarySensorDeviceClass.TAMPER,
             ),
             UponorRoomAlarm(
-                coordinator, entry, room, "rf_alarm", "radiolarm",
+                coordinator, entry, room, gateway_device_id, "rf_alarm", "rf alarm",
                 BinarySensorDeviceClass.PROBLEM,
             ),
             UponorRoomAlarm(
-                coordinator, entry, room, "battery_alarm", "batteri",
+                coordinator, entry, room, gateway_device_id, "battery_alarm", "battery",
                 BinarySensorDeviceClass.BATTERY,
             ),
         ]
@@ -51,7 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
 
 class UponorProblemSensor(CoordinatorEntity[UponorCoordinator], BinarySensorEntity):
-    """PÅ = senaste anropet mot enheten misslyckades."""
+    """ON = the last call to the device failed."""
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -60,7 +62,7 @@ class UponorProblemSensor(CoordinatorEntity[UponorCoordinator], BinarySensorEnti
     def __init__(self, coordinator: UponorCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = "uponor_r167_problem"
-        self._attr_name = "API-status"
+        self._attr_name = "API Status"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.data["host"])},
             name="Uponor R-167",
@@ -71,9 +73,10 @@ class UponorProblemSensor(CoordinatorEntity[UponorCoordinator], BinarySensorEnti
 
     @property
     def available(self) -> bool:
-        # Den här entiteten ska ALLTID visas, oavsett om enheten svarar
-        # eller inte – det är ju hela poängen med den. Standard-CoordinatorEntity
-        # blir annars "unavailable" så fort en pollning misslyckas.
+        # This entity should ALWAYS be shown, whether the device
+        # responds or not - that's the whole point of it. The default
+        # CoordinatorEntity would otherwise go "unavailable" as soon as
+        # a poll fails.
         return True
 
     @property
@@ -83,11 +86,11 @@ class UponorProblemSensor(CoordinatorEntity[UponorCoordinator], BinarySensorEnti
     @property
     def extra_state_attributes(self):
         err = getattr(self.coordinator, "last_exception", None)
-        return {"senaste_fel": str(err)} if err else {}
+        return {"last_error": str(err)} if err else {}
 
 
 class UponorRoomAlarm(CoordinatorEntity[UponorCoordinator], BinarySensorEntity):
-    """Ett larm/statusflagga per rum (teknisk, manipulation, radio, batteri)."""
+    """An alarm/status flag per room (technical, tamper, rf, battery)."""
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -98,6 +101,7 @@ class UponorRoomAlarm(CoordinatorEntity[UponorCoordinator], BinarySensorEntity):
         coordinator: UponorCoordinator,
         entry: ConfigEntry,
         room: Room,
+        gateway_device_id: str,
         attr_name: str,
         display_suffix: str,
         device_class: BinarySensorDeviceClass,
@@ -112,8 +116,8 @@ class UponorRoomAlarm(CoordinatorEntity[UponorCoordinator], BinarySensorEntity):
             identifiers={(DOMAIN, room.unique_id)},
             name=room.name,
             manufacturer="Uponor",
-            model="Termostat (Smatrix Wave)",
-            via_device=(DOMAIN, entry.data["host"]),
+            model="Thermostat (Smatrix Wave)",
+            via_device_id=gateway_device_id,
         )
 
     @property
