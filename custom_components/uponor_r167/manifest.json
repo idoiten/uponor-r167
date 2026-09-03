@@ -1,11 +1,11 @@
 {
   "domain": "uponor_r167",
   "name": "Uponor",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "config_flow": true,
-  "documentation": "https://github.com/",
-  "issue_tracker": "https://github.com/",
+  "documentation": "https://github.com/idoiten/uponor-r167",
+  "issue_tracker": "https://github.com/idoiten/uponor-r167/issues",
   "requirements": [],
-  "codeowners": [],
+  "codeowners": ["@idoiten"],
   "iot_class": "local_polling"
 }
