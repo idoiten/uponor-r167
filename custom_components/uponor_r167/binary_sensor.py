@@ -33,15 +33,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 BinarySensorDeviceClass.PROBLEM,
             ),
             UponorRoomAlarm(
-                coordinator, entry, room, gateway_device_id, "technical_alarm", "technical alarm",
+                coordinator, entry, room, gateway_device_id, "technical_alarm", "technical_alarm",
                 BinarySensorDeviceClass.PROBLEM,
             ),
             UponorRoomAlarm(
-                coordinator, entry, room, gateway_device_id, "tamper_alarm", "tamper alarm",
+                coordinator, entry, room, gateway_device_id, "tamper_alarm", "tamper_alarm",
                 BinarySensorDeviceClass.TAMPER,
             ),
             UponorRoomAlarm(
-                coordinator, entry, room, gateway_device_id, "rf_alarm", "rf alarm",
+                coordinator, entry, room, gateway_device_id, "rf_alarm", "rf_alarm",
                 BinarySensorDeviceClass.PROBLEM,
             ),
             UponorRoomAlarm(
@@ -58,11 +58,11 @@ class UponorProblemSensor(CoordinatorEntity[UponorCoordinator], BinarySensorEnti
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
+    _attr_translation_key = "api_status"
 
     def __init__(self, coordinator: UponorCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = "uponor_r167_problem"
-        self._attr_name = "API Status"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.data["host"])},
             name="Uponor R-167",
@@ -103,7 +103,7 @@ class UponorRoomAlarm(CoordinatorEntity[UponorCoordinator], BinarySensorEntity):
         room: Room,
         gateway_device_id: str,
         attr_name: str,
-        display_suffix: str,
+        translation_key: str,
         device_class: BinarySensorDeviceClass,
     ) -> None:
         super().__init__(coordinator)
@@ -111,7 +111,7 @@ class UponorRoomAlarm(CoordinatorEntity[UponorCoordinator], BinarySensorEntity):
         self._attr_name_attr = attr_name
         self._attr_device_class = device_class
         self._attr_unique_id = f"{room.unique_id}_{attr_name}"
-        self._attr_name = display_suffix.capitalize()
+        self._attr_translation_key = translation_key
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, room.unique_id)},
             name=room.name,
