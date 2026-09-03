@@ -1,58 +1,60 @@
-# Uponor R-167 (U@home) för Home Assistant
+# Uponor R-167 (U@home) for Home Assistant
 
-Anpassad Home Assistant-integration för Uponor Smatrix Wave PLUS via
-kommunikationsmodulen **R-167 (U@home)**. Bygger direkt på modulens lokala
-JSON-RPC-API (`http://<IP>/api`), reverse-engineerat från grunden.
+Custom Home Assistant integration for Uponor Smatrix Wave PLUS via the
+**R-167 (U@home)** communication module. Built directly on the module's
+local JSON-RPC API (`http://<IP>/api`), reverse-engineered from scratch.
 
-## Funktioner
+## Features
 
-- En `climate`-entitet per rum (termostatkanal), med `Current action`
-  (Heating/Idle) baserat på enhetens egen "room in demand"-status.
-- En temperatursensor per rum.
-- Utetemperatur och medelinomhustemperatur (systemvärden).
-- Larm/diagnostik per rum: tekniskt larm, manipulationslarm, radiolarm,
-  lågt batteri, fuktgräns, golvgräns.
-- En "API-status"-sensor som visar om senaste anropet mot enheten
-  misslyckades.
-- Snabb bekräftelse efter en temperaturändring: pollar det ändrade rummet
-  var 5:e sekund (upp till 2 minuter) tills enhetens "room in demand"
-  faktiskt ändras, istället för att vänta på nästa ordinarie pollning.
-- Alla enheter grupperas snyggt: en gateway-enhet ("Uponor R-167") med
-  varje rum som en egen underenhet.
+- One `climate` entity per room (thermostat channel), with `Current action`
+  (Heating/Idle) based on the device's own "room in demand" status.
+- One temperature sensor per room.
+- Outdoor temperature and average indoor temperature (system values).
+- Per-room alarms/diagnostics: technical alarm, tamper alarm, rf alarm,
+  low battery, moisture limit, floor limit.
+- An "API Status" sensor showing whether the last call to the device
+  failed.
+- Fast confirmation after a temperature change: polls the changed room
+  every 5 seconds (up to 2 minutes) until the device's "room in demand"
+  actually changes, instead of waiting for the next regular poll.
+- All entities are neatly grouped: a gateway device ("Uponor R-167") with
+  each room as its own sub-device.
 
 ## Installation
 
-### Via HACS (rekommenderas)
+### Via HACS (recommended)
 
-1. HACS → Integrationer → meny (⋮) → **Anpassade repositories**.
-2. Lägg till repo-URL:en, kategori **Integration**.
-3. Sök upp "Uponor R-167" i HACS och installera.
-4. Starta om Home Assistant.
-5. Inställningar → Enheter och tjänster → Lägg till integration → sök
-   "Uponor", ange IP-adressen till din R-167.
+1. HACS → Integrations → menu (⋮) → **Custom repositories**.
+2. Add the repo URL, category **Integration**.
+3. Search for "Uponor R-167" in HACS and install.
+4. Restart Home Assistant.
+5. Settings → Devices & services → Add integration → search "Uponor",
+   enter the IP address of your R-167.
 
-### Manuellt
+### Manual
 
-Kopiera `custom_components/uponor_r167` till din
-`<config>/custom_components/`-mapp, starta om HA, och lägg till
-integrationen som ovan.
+Copy `custom_components/uponor_r167` to your
+`<config>/custom_components/` folder, restart HA, and add the
+integration as above.
 
-## Konfiguration
+## Configuration
 
-Under integrationens **Konfigurera**-knapp kan du i efterhand justera:
-- **Max channels** – hur många interna kanalspår som söks igenom vid start
-  (standard 30, räcker gott för de flesta installationer).
-- **Scan interval** – hur ofta hela systemet pollas i sekunder (standard 60).
+Under the integration's **Configure** button you can adjust afterwards:
+- **Max channels** - how many internal channel slots are scanned on
+  startup (default 30, plenty for most installations).
+- **Scan interval** - how often the whole system is polled, in seconds
+  (default 60).
 
-## Bakgrund
+## Background
 
-R-167:s API är inte officiellt dokumenterat av Uponor. Objekt-id:n och
-egenskaper i den här integrationen är framtagna genom manuell
-reverse-engineering (jämförelse av kända värden mot API-svar, brett sökande
-efter BACnet-objektnamn via property 77, m.m.). Fungerar med en
-Smatrix Wave PLUS-installation (X-165 + R-167); ej testad mot X-265/R-208.
+The R-167's API is not officially documented by Uponor. The object ids
+and properties in this integration were derived through manual
+reverse-engineering (comparing known values against API responses,
+broadly searching for BACnet object names via property 77, etc.). Works
+with a Smatrix Wave PLUS installation (X-165 + R-167); not tested
+against X-265/R-208.
 
-## Ansvarsfriskrivning
+## Disclaimer
 
-Inofficiell integration, inte utvecklad eller stödd av Uponor. Används på
-egen risk.
+Unofficial integration, not developed or supported by Uponor. Use at
+your own risk.
