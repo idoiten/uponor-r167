@@ -27,14 +27,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             coordinator,
             entry,
             obj_id=OUTDOOR_TEMP_ID,
-            name="Outdoor Temperature",
+            translation_key="outdoor_temperature",
             unique_suffix="outdoor_temp",
         ),
         UponorSystemSensor(
             coordinator,
             entry,
             obj_id=AVG_INDOOR_TEMP_ID,
-            name="Average Indoor Temperature",
+            translation_key="avg_indoor_temperature",
             unique_suffix="avg_indoor_temp",
         ),
     ]
@@ -57,12 +57,12 @@ class UponorSystemSensor(CoordinatorEntity[UponorCoordinator], SensorEntity):
         coordinator: UponorCoordinator,
         entry: ConfigEntry,
         obj_id: int,
-        name: str,
+        translation_key: str,
         unique_suffix: str,
     ) -> None:
         super().__init__(coordinator)
         self._obj_id = obj_id
-        self._attr_name = name
+        self._attr_translation_key = translation_key
         self._attr_unique_id = f"uponor_r167_{unique_suffix}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.data["host"])},
@@ -84,7 +84,7 @@ class UponorRoomTemperature(CoordinatorEntity[UponorCoordinator], SensorEntity):
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_has_entity_name = True
-    _attr_name = "Temperature"
+    _attr_translation_key = "temperature"
 
     def __init__(
         self,
