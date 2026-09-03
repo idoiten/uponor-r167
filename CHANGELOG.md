@@ -4,6 +4,27 @@ All notable changes to this project are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/),
 and the project aims for [Semantic Versioning](https://semver.org/).
 
+## [1.5.2] - 2026-09-03
+
+### Fixed
+- **Regression from 1.5.1: the two system sensors (Outdoor
+  Temperature, Average Indoor Temperature) and the API Status sensor
+  showed the device's own name ("Uponor R-167") instead of their
+  translated entity name.** 1.5.1 set `translation_key` on these
+  entities without also setting `has_entity_name = True` - and per
+  Home Assistant's entity translation requirements, translating an
+  entity name requires `has_entity_name` to be `True`, or the
+  translation lookup never happens at all and HA falls back to the
+  device's own name. All three entities now have
+  `has_entity_name = True` set, so `translation_key` resolves
+  correctly.
+- **Side effect:** these three entities' friendly names now include
+  the device name as a prefix (e.g. "Uponor R-167 Outdoor
+  Temperature" instead of a bare "Outdoor Temperature"), matching
+  the pattern already used for all per-room entities. This is a
+  necessary consequence of fixing the translation, not an additional
+  change.
+
 ## [1.5.1] - 2026-09-03
 
 ### Changed
