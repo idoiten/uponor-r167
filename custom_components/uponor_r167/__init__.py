@@ -26,12 +26,12 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["climate", "sensor", "binary_sensor"]
 
-# Systemövergripande värden (inte knutna till ett specifikt rum).
+# System-wide values (not tied to a specific room).
 SYSTEM_VALUE_IDS = [AVG_INDOOR_TEMP_ID, OUTDOOR_TEMP_ID]
 
 
 class UponorCoordinator(DataUpdateCoordinator):
-    """Håller koll på alla rum och uppdaterar dem periodiskt."""
+    """Keeps track of all rooms and refreshes them periodically."""
 
     def __init__(self, hass: HomeAssistant, client: UponorApiClient, interval: int) -> None:
         super().__init__(
@@ -51,7 +51,7 @@ class UponorCoordinator(DataUpdateCoordinator):
                 self.rooms = await self.client.discover_and_read()
                 self._discovered = True
                 _LOGGER.info(
-                    "Uponor R-167: hittade %d rum: %s",
+                    "Uponor R-167: found %d rooms: %s",
                     len(self.rooms),
                     ", ".join(r.name for r in self.rooms),
                 )
@@ -72,10 +72,10 @@ class UponorCoordinator(DataUpdateCoordinator):
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    # R-167 har en väldigt enkel inbyggd webbserver som ofta tappar
-    # anslutningen om vi återanvänder en keep-alive-koppling (t.ex. HA:s
-    # delade session). Skapa därför en egen session som alltid stänger
-    # anslutningen efter varje anrop.
+    # R-167 has a very simple built-in web server that often drops the
+    # connection if we reuse a keep-alive connection (e.g. HA's shared
+    # session). Create a dedicated session that always closes the
+    # connection after each call.
     connector = aiohttp.TCPConnector(force_close=True, limit_per_host=1)
     session = aiohttp.ClientSession(connector=connector)
 
@@ -93,17 +93,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = UponorCoordinator(hass, client, interval)
     await coordinator.async_config_entry_first_refresh()
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
-        "coordinator": coordinator,
-        "session": session,
-    }
-
-    # Skapa gateway-enheten explicit innan plattformarna sätts upp, så att
-    # rummens via_device-referens alltid pekar på en enhet som redan finns
-    # (annars varnar/kraschar HA beroende på i vilken ordning entiteter
-    # råkar läggas till).
+    # Explicitly create the gateway device before the platforms are set
+    # up, so that each room's via_device_id reference always points at
+    # a device that already exists (otherwise HA warns/crashes depending
+    # on the order entities happen to be added in).
     device_registry = dr.async_get(hass)
-    device_registry.async_get_or_create(
+    gateway_device = device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.data["host"])},
         name="Uponor R-167",
@@ -112,13 +107,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         configuration_url=f"http://{entry.data['host']}",
     )
 
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "coordinator": coordinator,
+        "session": session,
+        "gateway_device_id": gateway_device.id,
+    }
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Ladda om integrationen när användaren ändrar inställningar (t.ex. scan_interval)."""
+    """Reload the integration when the user changes settings (e.g. scan_interval)."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
