@@ -1,4 +1,4 @@
-"""Enkel async-klient för Uponor R-167:s lokala JSON-RPC-API."""
+"""Simple async client for the Uponor R-167's local JSON-RPC API."""
 
 from __future__ import annotations
 
@@ -27,19 +27,19 @@ from .const import (
 
 
 class UponorApiError(Exception):
-    """Fel vid kommunikation med R-167."""
+    """Error communicating with the R-167."""
 
 
-# Vid uppstart: hur många gånger vi försöker om vi misstänker att
-# enheten svarade med skräpdata (t.ex. för att den själv fortfarande
-# höll på att starta upp), och hur länge vi väntar mellan försöken.
+# At startup: how many times we retry if we suspect the device
+# responded with garbage data (e.g. because it was still starting up
+# itself), and how long we wait between attempts.
 DISCOVERY_MAX_ATTEMPTS = 5
-DISCOVERY_RETRY_DELAY = 10  # sekunder
+DISCOVERY_RETRY_DELAY = 10  # seconds
 
 
 @dataclass
 class Room:
-    """En termostat-kanal (rum)."""
+    """A thermostat channel (room)."""
 
     settings_start: int
     name: str
@@ -55,8 +55,9 @@ class Room:
     rf_alarm: bool | None = None
     battery_alarm: bool | None = None
 
-    # Obekräftade "kandidatvärden" för larm-debounce (se _debounce_bool).
-    # Inte tänkta att läsas direkt av entiteter – bara internt bokföring.
+    # Unconfirmed "candidate values" for alarm debouncing (see
+    # _debounce_bool). Not meant to be read directly by entities -
+    # internal bookkeeping only.
     _pending_technical_alarm: bool | None = None
     _pending_tamper_alarm: bool | None = None
     _pending_rf_alarm: bool | None = None
@@ -117,7 +118,7 @@ class Room:
 
 @dataclass
 class UponorApiClient:
-    """Pratar med http://<host>/api (JSON-RPC 2.0, method read/write)."""
+    """Talks to http://<host>/api (JSON-RPC 2.0, method read/write)."""
 
     host: str
     session: aiohttp.ClientSession
@@ -142,10 +143,10 @@ class UponorApiClient:
             "method": method,
             "params": {"objects": objects},
         }
-        # R-167 har en väldigt enkel/svag inbyggd webbserver som inte klarar
-        # av överlappande anrop – se till att bara ETT anrop i taget någonsin
-        # skickas till enheten, oavsett om det kommer från en periodisk
-        # pollning eller en användarinitierad skrivning.
+        # The R-167 has a very simple/weak built-in web server that
+        # can't handle overlapping calls - make sure only ONE call at
+        # a time is ever sent to the device, whether it comes from a
+        # periodic poll or a user-initiated write.
         async with self._lock:
             last_err: Exception | None = None
             for attempt in range(5):
@@ -160,15 +161,17 @@ class UponorApiClient:
                         return await resp.json()
                 except (aiohttp.ClientError, asyncio.TimeoutError) as err:
                     last_err = err
-                    # Ge enheten gott om tid att hämta andan, särskilt efter
-                    # en skrivning (som kan innebära en flash-skrivning).
+                    # Give the device plenty of time to catch its
+                    # breath, especially after a write (which may
+                    # involve a flash write).
                     await asyncio.sleep(1.0 * (attempt + 1))
-            raise UponorApiError(f"Kunde inte nå {self.url}: {last_err}") from last_err
+            raise UponorApiError(f"Could not reach {self.url}: {last_err}") from last_err
 
     async def read(self, items: list[int] | list[tuple[int, str]]) -> dict[int, object]:
-        """Läs objekt. Varje item är antingen ett id (property 85 antas)
-        eller ett (id, property)-par för objekt som använder en annan
-        property, t.ex. larm som ligger på property 662 istället för 85."""
+        """Read objects. Each item is either an id (property 85 is
+        assumed) or an (id, property) pair for objects that use a
+        different property, e.g. alarms which live on property 662
+        instead of 85."""
         normalized = [
             (i, "85") if isinstance(i, int) else (i[0], i[1]) for i in items
         ]
@@ -178,7 +181,7 @@ class UponorApiClient:
         body = await self._call("read", objects)
         result = body.get("result")
         if not isinstance(result, dict):
-            raise UponorApiError(f"Oväntat svar: {body}")
+            raise UponorApiError(f"Unexpected response: {body}")
         values: dict[int, object] = {}
         for obj in result.get("objects", []):
             props = obj.get("properties", {})
@@ -194,7 +197,7 @@ class UponorApiClient:
             [{"id": str(obj_id), "properties": {"85": {"value": str(value)}}}],
         )
         if body.get("result") != "ok":
-            raise UponorApiError(f"Skrivning misslyckades: {body}")
+            raise UponorApiError(f"Write failed: {body}")
 
     ALARM_PROPERTY = "662"
 
@@ -220,16 +223,17 @@ class UponorApiClient:
         return items
 
     async def discover_and_read(self) -> list[Room]:
-        """Läs alla kanaler och returnera de som faktiskt har ett rumsnamn.
+        """Read all channels and return the ones that actually have a
+        room name.
 
-        Enheten har visat sig kunna svara med skräpdata (bl.a. rena
-        siffror istället för riktiga rumsnamn) om den frågas medan den
-        själv fortfarande håller på att starta upp – t.ex. om HA
-        laddar om integrationen precis efter en strömavbrott/omstart
-        av R-167. Om vi upptäcker sådant skräp, eller inte hittar
-        några rum alls, väntar vi och försöker igen ett antal gånger
-        innan vi ger upp helt (vilket gör att HA:s vanliga
-        setup_retry-mekanism tar över och försöker igen senare).
+        The device has been observed to respond with garbage data
+        (e.g. plain numbers instead of real room names) if queried
+        while it's still starting up itself - e.g. if HA reloads the
+        integration right after a power outage/restart of the R-167.
+        If we detect such garbage, or find no rooms at all, we wait
+        and retry a number of times before giving up entirely (which
+        lets HA's regular setup_retry mechanism take over and try
+        again later).
         """
         last_room_count = 0
         for attempt in range(DISCOVERY_MAX_ATTEMPTS):
@@ -240,13 +244,13 @@ class UponorApiClient:
             if attempt < DISCOVERY_MAX_ATTEMPTS - 1:
                 await asyncio.sleep(DISCOVERY_RETRY_DELAY)
         raise UponorApiError(
-            f"Enheten svarade med skräpdata eller inga rum hittades efter "
-            f"{DISCOVERY_MAX_ATTEMPTS} försök (senast {last_room_count} rum "
-            f"hittade). Enheten verkar inte vara redo."
+            f"The device responded with garbage data or no rooms were "
+            f"found after {DISCOVERY_MAX_ATTEMPTS} attempts (last saw "
+            f"{last_room_count} rooms). The device doesn't seem ready."
         )
 
     async def _discover_once(self) -> tuple[list[Room], bool]:
-        """En enskild sökning. Returnerar (rum, hittades_skräp)."""
+        """A single search. Returns (rooms, garbage_found)."""
         all_items = self._all_ids()
         chunk_size = 40
         values: dict[int, object] = {}
@@ -261,9 +265,10 @@ class UponorApiClient:
             data_start = settings_start + DATA_OFFSET
             name = values.get(data_start + OFFSET_NAME)
             if not _looks_like_room_name(name):
-                # Ett tomt/oanvänt fält är helt normalt. Men om det
-                # faktiskt innehöll NÅGOT (bara inte ett giltigt namn)
-                # är det ett tecken på skräpdata, inte en oanvänd kanal.
+                # An empty/unused field is completely normal. But if
+                # it actually contained SOMETHING (just not a valid
+                # name), that's a sign of garbage data, not an unused
+                # channel.
                 if isinstance(name, str) and name.strip():
                     garbage_detected = True
                 continue
@@ -293,7 +298,7 @@ class UponorApiClient:
         return rooms, garbage_detected
 
     async def refresh_rooms(self, rooms: list[Room]) -> None:
-        """Uppdatera actual/setpoint/status/larm (inte min/max/namn) för redan kända rum."""
+        """Update actual/setpoint/status/alarms (not min/max/name) for already known rooms."""
         items: list[tuple[int, str]] = []
         for room in rooms:
             items += [
@@ -313,19 +318,20 @@ class UponorApiClient:
             chunk = items[i : i + chunk_size]
             values.update(await self.read(chunk))
         for room in rooms:
-            # Ärvärde: avvisa en ny avläsning som avviker mer än 1°C från
-            # senast bekräftade värde – ett golvvärmt rum ändras aldrig
-            # så snabbt i praktiken, så ett större hopp är skräpdata.
+            # Actual temperature: reject a new reading that deviates
+            # more than 1°C from the last confirmed value - a
+            # floor-heated room never changes that fast in practice,
+            # so a bigger jump is garbage data.
             new_actual = _as_temperature(values.get(room.actual_id))
             if new_actual is not None:
                 if room.actual is None or abs(new_actual - room.actual) <= 1.0:
                     room.actual = new_actual
-                # annars: behåll det gamla, bekräftade värdet
+                # otherwise: keep the old, confirmed value
 
-            # Börvärde: avvisa värden utanför rummets egna min/max-gränser
-            # (hämtade en gång vid uppstart) – t.ex. -17,8°C skulle
-            # fångas här även om det klarar det generella 5–40°C-filtret
-            # för ett annat rum med bredare gränser.
+            # Setpoint: reject values outside the room's own min/max
+            # limits (fetched once at startup) - e.g. -17.8°C would be
+            # caught here even though it passes the general 5-40°C
+            # filter meant for a different room with wider limits.
             new_setpoint = _as_temperature(values.get(room.setpoint_id))
             if new_setpoint is not None:
                 within_limits = True
@@ -335,14 +341,15 @@ class UponorApiClient:
                     within_limits = False
                 if within_limits:
                     room.setpoint = new_setpoint
-                # annars: behåll det gamla, bekräftade värdet
+                # otherwise: keep the old, confirmed value
 
             room.room_in_demand = _as_bool(values.get(room.room_in_demand_id))
             room.rh_limit = _as_bool(values.get(room.rh_limit_id))
             room.floor_limit = _as_bool(values.get(room.floor_limit_id))
 
-            # Larm: kräv att samma värde ses två pollningar i rad innan
-            # det visas/triggar automationer (se _debounce_bool).
+            # Alarms: require the same value to be seen on two
+            # consecutive polls before it's shown/triggers automations
+            # (see _debounce_bool).
             room.technical_alarm, room._pending_technical_alarm = _debounce_bool(
                 room.technical_alarm,
                 room._pending_technical_alarm,
@@ -369,14 +376,13 @@ _NUMERIC_ONLY = re.compile(r"^[\d.\-]+$")
 
 
 def _looks_like_room_name(value: object) -> bool:
-    """Ett riktigt rumsnamn är alltid människo-skrivet text.
+    """A real room name is always human-typed text.
 
-    Enheten har visat sig kunna svara med skräpdata under instabila
-    perioder – bland annat ett värde som råkar se ut som "1.1" eller
-    "1.3" (troligen ett feltolkat numeriskt fält) istället för det
-    riktiga rumsnamnet. Ett rent numeriskt "namn" är aldrig giltigt,
-    så vi avvisar sådana istället för att skapa/döpa om ett rum till
-    skräp.
+    The device has been observed to respond with garbage data during
+    unstable periods - including a value that happens to look like
+    "1.1" or "1.3" (likely a misread numeric field) instead of the
+    real room name. A purely numeric "name" is never valid, so we
+    reject those instead of creating/renaming a room to garbage.
     """
     if not isinstance(value, str):
         return False
@@ -400,9 +406,10 @@ def _as_float(value: object) -> float | None:
 
 
 def _as_temperature(value: object) -> float | None:
-    """Som _as_float, men avvisar orimliga värden för en rumstemperatur
-    (ärvärde, börvärde, min/max) – gäller allt utom utetemperaturen,
-    som har sin egen, bredare gräns (se _as_outdoor_temperature)."""
+    """Like _as_float, but rejects implausible values for a room
+    temperature (actual, setpoint, min/max) - applies to everything
+    except the outdoor temperature, which has its own, wider bound
+    (see _as_outdoor_temperature)."""
     f = _as_float(value)
     if f is None:
         return None
@@ -412,8 +419,8 @@ def _as_temperature(value: object) -> float | None:
 
 
 def _as_outdoor_temperature(value: object) -> float | None:
-    """Som _as_temperature, men med en bredare gräns eftersom
-    utetemperaturen rimligen kan bli betydligt kallare än ett rum."""
+    """Like _as_temperature, but with a wider bound since the outdoor
+    temperature can reasonably get a lot colder than a room."""
     f = _as_float(value)
     if f is None:
         return None
@@ -425,29 +432,29 @@ def _as_outdoor_temperature(value: object) -> float | None:
 def _debounce_bool(
     current: bool | None, pending: bool | None, new: bool | None
 ) -> tuple[bool | None, bool | None]:
-    """Kräver att ett nytt larmvärde bekräftas av två pollningar i rad
-    innan det visas/triggar automationer, för att skydda mot enstaka
-    skräpavläsningar (t.ex. precis efter att enheten återhämtat sig).
+    """Requires a new alarm value to be confirmed by two consecutive
+    polls before it's shown/triggers automations, to protect against
+    isolated garbage readings (e.g. right after the device recovers).
 
-    Returnerar (nytt_bekräftat_värde, ny_kandidat).
+    Returns (new_confirmed_value, new_candidate).
     """
     if new is None:
-        return current, pending  # okänt/ej tolkningsbart svar – ingen ändring
+        return current, pending  # unknown/unparseable response - no change
     if new == current:
-        return current, None  # matchar redan bekräftat värde
+        return current, None  # matches the already-confirmed value
     if new == pending:
-        return new, None  # bekräftat av två pollningar i rad
-    return current, new  # ny, obekräftad kandidat
+        return new, None  # confirmed by two consecutive polls
+    return current, new  # new, unconfirmed candidate
 
 
 def _as_bool(value: object) -> bool | None:
-    """Endast exakt 0 eller 1 räknas som ett giltigt booleskt värde.
+    """Only exactly 0 or 1 counts as a valid boolean value.
 
-    Enheten har visat sig kunna svara med skräpvärden under instabila
-    perioder (t.ex. precis efter en omstart). Om vi tolkade *allt* som
-    inte är exakt 0 som "på" skulle sådan skräpdata kunna se ut som ett
-    gäng samtidiga larm. Ett okänt/orimligt värde ger hellre "okänt"
-    (None) än ett falskt larm.
+    The device has been observed to respond with garbage values during
+    unstable periods (e.g. right after a restart). If we treated
+    *anything* not exactly 0 as "on", such garbage data could look
+    like a bunch of simultaneous alarms. An unknown/implausible value
+    yields "unknown" (None) rather than a false alarm.
     """
     f = _as_float(value)
     if f == 0:
