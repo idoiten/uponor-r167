@@ -33,7 +33,7 @@
   "entity": {
     "sensor": {
       "outdoor_temperature": {
-        "name": "Utetemperatur"
+        "name": "Utomhustemperatur"
       },
       "avg_indoor_temperature": {
         "name": "Medelinomhustemperatur"
