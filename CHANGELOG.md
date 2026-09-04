@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/),
 and the project aims for [Semantic Versioning](https://semver.org/).
 
+## [1.5.3] - 2026-09-04
+
+### Fixed
+- Corrected the Swedish translation for the outdoor temperature
+  sensor: "Utomhustemperatur" instead of "Utetemperatur".
+
 ## [1.5.2] - 2026-09-03
 
 ### Fixed
