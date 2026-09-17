@@ -4,6 +4,27 @@ All notable changes to this project are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/),
 and the project aims for [Semantic Versioning](https://semver.org/).
 
+## [1.5.4] - 2026-09-17
+
+### Fixed
+- **The actual (measured) temperature could permanently lock onto a
+  bad reading.** The 1°C jump-rejection filter introduced in 1.4.0
+  had a flaw: if a single bad reading was ever accepted as the
+  confirmed value (e.g. because it happened to be within 1°C of the
+  previous reading), every subsequent *correct* reading that then
+  differed from that bad value by more than 1°C got rejected too -
+  permanently, since the wrong value never had a chance to be
+  corrected. This was observed in practice on `climate.kontor`,
+  which got stuck at 25.8°C for two days until the integration was
+  manually reloaded.
+  Fixed by requiring a large jump to be confirmed by a second,
+  consistent reading on the very next poll (the same debounce pattern
+  already used for alarms) before it's accepted - and, critically,
+  this same confirmation process also applies on the way back to a
+  correct value, so even in the rare case where two bad readings in a
+  row falsely confirm a wrong value, it self-corrects within one or
+  two more polls instead of requiring a manual reload.
+
 ## [1.5.3] - 2026-09-04
 
 ### Fixed
