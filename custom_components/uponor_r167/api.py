@@ -63,6 +63,13 @@ class Room:
     _pending_rf_alarm: bool | None = None
     _pending_battery_alarm: bool | None = None
 
+    # Unconfirmed candidate for a large actual-temperature jump (see
+    # the actual-temperature handling in refresh_rooms). Prevents a
+    # single bad reading from permanently "locking in" as the new
+    # baseline and blocking all future correct readings that differ
+    # from it by more than the normal tolerance.
+    _pending_actual: float | None = None
+
     @property
     def unique_id(self) -> str:
         return f"uponor_r167_{self.settings_start}"
@@ -318,15 +325,24 @@ class UponorApiClient:
             chunk = items[i : i + chunk_size]
             values.update(await self.read(chunk))
         for room in rooms:
-            # Actual temperature: reject a new reading that deviates
-            # more than 1°C from the last confirmed value - a
-            # floor-heated room never changes that fast in practice,
-            # so a bigger jump is garbage data.
-            new_actual = _as_temperature(values.get(room.actual_id))
-            if new_actual is not None:
-                if room.actual is None or abs(new_actual - room.actual) <= 1.0:
-                    room.actual = new_actual
-                # otherwise: keep the old, confirmed value
+            # Actual temperature: a reading that deviates more than
+            # 1°C from the last confirmed value is not applied
+            # immediately - a floor-heated room never changes that
+            # fast in practice, so a bigger jump is usually garbage
+            # data. BUT a single bad reading must not be allowed to
+            # permanently become the new baseline (which would then
+            # reject every future *correct* reading forever, since
+            # they'd all differ from the bad one by more than 1°C -
+            # this happened in practice and required a manual reload
+            # to clear). So a big jump is only accepted once the same
+            # jump (within tolerance of itself) is seen again on the
+            # very next poll - confirming it's a real, sustained
+            # change and not a one-off glitch.
+            room.actual, room._pending_actual = _debounce_temperature(
+                room.actual,
+                room._pending_actual,
+                _as_temperature(values.get(room.actual_id)),
+            )
 
             # Setpoint: reject values outside the room's own min/max
             # limits (fetched once at startup) - e.g. -17.8°C would be
@@ -444,6 +460,32 @@ def _debounce_bool(
         return current, None  # matches the already-confirmed value
     if new == pending:
         return new, None  # confirmed by two consecutive polls
+    return current, new  # new, unconfirmed candidate
+
+
+def _debounce_temperature(
+    current: float | None, pending: float | None, new: float | None
+) -> tuple[float | None, float | None]:
+    """Like _debounce_bool, but for the actual (measured) temperature.
+
+    A small change (within 1°C of the current confirmed value) is
+    applied immediately. A bigger jump is held as a candidate and
+    only confirmed once a *second*, consistent reading (within 1°C of
+    the candidate, not the old value) shows up on the next poll -
+    otherwise a single glitch could permanently lock the sensor onto
+    a wrong value, since every future correct reading would then look
+    like "too big a jump" relative to that wrong value.
+
+    Returns (new_confirmed_value, new_candidate).
+    """
+    if new is None:
+        return current, pending  # unknown/unparseable response - no change
+    if current is None:
+        return new, None  # first ever reading - nothing to compare against
+    if abs(new - current) <= 1.0:
+        return new, None  # small, plausible change - apply immediately
+    if pending is not None and abs(new - pending) <= 1.0:
+        return new, None  # confirmed by two consecutive similar readings
     return current, new  # new, unconfirmed candidate
 
 
