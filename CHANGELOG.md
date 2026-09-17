@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/),
 and the project aims for [Semantic Versioning](https://semver.org/).
 
+## [1.5.5] - 2026-09-17
+
+### Note
+- Version bump only, no functional changes - used to test whether
+  HACS's ~48-hour custom-repository refresh cycle correctly surfaces
+  this release as an available update.
+
 ## [1.5.4] - 2026-09-17
 
 ### Fixed
