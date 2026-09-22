@@ -46,6 +46,18 @@ DISCOVERY_RETRY_DELAY = 10  # seconds
 ACTUAL_JUMP_THRESHOLD = 0.5  # °C
 ACTUAL_JUMP_CONFIRMATIONS = 5
 
+# During the regular poll: how long to pause between each room's own
+# request. Real-world testing found that a *value from one room*
+# occasionally showed up under a *different room's* id when many
+# rooms' fields were bundled into one large batched request (up to 40
+# objects at once) - almost certainly the device's own weak embedded
+# server occasionally mixing up which value belongs to which id under
+# that load. Querying one room at a time, with a short pause between
+# each, means a single request only ever contains that one room's own
+# objects, so there's nothing from another room for the device to mix
+# it up with.
+ROOM_POLL_DELAY = 1.0  # seconds
+
 
 @dataclass
 class Room:
@@ -318,10 +330,18 @@ class UponorApiClient:
         return rooms, garbage_detected
 
     async def refresh_rooms(self, rooms: list[Room]) -> None:
-        """Update actual/setpoint/status/alarms (not min/max/name) for already known rooms."""
-        items: list[tuple[int, str]] = []
-        for room in rooms:
-            items += [
+        """Update actual/setpoint/status/alarms (not min/max/name) for
+        already known rooms - one room at a time, with a short pause
+        between each (see ROOM_POLL_DELAY).
+
+        Each room's request only ever contains that room's own
+        objects, so the device has nothing from another room to mix
+        it up with. This directly addresses a confirmed real-world
+        case where a value from one room appeared under a different
+        room's id when many rooms were bundled into one large request.
+        """
+        for index, room in enumerate(rooms):
+            items: list[tuple[int, str]] = [
                 (room.actual_id, "85"),
                 (room.setpoint_id, "85"),
                 (room.room_in_demand_id, "85"),
@@ -332,12 +352,8 @@ class UponorApiClient:
                 (room.rf_alarm_id, self.ALARM_PROPERTY),
                 (room.battery_alarm_id, self.ALARM_PROPERTY),
             ]
-        chunk_size = 40
-        values: dict[int, object] = {}
-        for i in range(0, len(items), chunk_size):
-            chunk = items[i : i + chunk_size]
-            values.update(await self.read(chunk))
-        for room in rooms:
+            values = await self.read(items)
+
             # Actual temperature: see _debounce_temperature and the
             # ACTUAL_JUMP_THRESHOLD/ACTUAL_JUMP_CONFIRMATIONS constants
             # above for the exact rules - a small change applies
@@ -394,6 +410,9 @@ class UponorApiClient:
                 room._pending_battery_alarm,
                 _as_bool(values.get(room.battery_alarm_id)),
             )
+
+            if index < len(rooms) - 1:
+                await asyncio.sleep(ROOM_POLL_DELAY)
 
 
 _NUMERIC_ONLY = re.compile(r"^[\d.\-]+$")
