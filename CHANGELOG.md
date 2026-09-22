@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/),
 and the project aims for [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-09-22
+
+### Fixed
+- **Confirmed root cause of the recurring temperature "dips" (1.5.4,
+  1.5.6): the device occasionally attributed one room's real
+  temperature to a *different* room's id when many rooms were
+  bundled into one large batched request.** Verified by comparing
+  two rooms' history side by side: a "dip" in one room's temperature
+  matched, almost to the decimal, another room's genuine, concurrent
+  temperature at that exact moment - not noise, but a real value
+  attached to the wrong id. Because the misattributed value is a
+  perfectly plausible temperature (just for the wrong room), no
+  amount of statistical filtering on values alone can fully tell it
+  apart from a real reading for that room - if the mix-up persists
+  across several consecutive polls, even the stricter 1.5.6 debounce
+  can end up confirming it.
+- **Fix: `refresh_rooms()` now queries one room at a time**, with a
+  short pause between each (`ROOM_POLL_DELAY`, 1 second by default),
+  instead of bundling every room's fields into large batches of up
+  to 40 objects. Each request now only ever contains a single room's
+  own object ids, so there's nothing from another room for the
+  device to mix it up with. The fast per-room confirmation loop used
+  right after a temperature change already only ever queries one
+  room, so it's unaffected and stays just as responsive.
+
 ## [1.5.6] - 2026-09-22
 
 ### Changed
