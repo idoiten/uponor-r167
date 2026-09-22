@@ -36,6 +36,16 @@ class UponorApiError(Exception):
 DISCOVERY_MAX_ATTEMPTS = 5
 DISCOVERY_RETRY_DELAY = 10  # seconds
 
+# For the actual (measured) temperature: a change bigger than this
+# (in °C) is treated as a "jump" that needs confirmation rather than
+# applied immediately. Real-world testing showed that even a couple
+# of consecutive glitches confirming each other happens often enough
+# on some devices to be a nuisance - so a jump now needs this many
+# consecutive, mutually consistent readings in a row before it's
+# accepted as real, not just one.
+ACTUAL_JUMP_THRESHOLD = 0.5  # °C
+ACTUAL_JUMP_CONFIRMATIONS = 5
+
 
 @dataclass
 class Room:
@@ -69,6 +79,9 @@ class Room:
     # baseline and blocking all future correct readings that differ
     # from it by more than the normal tolerance.
     _pending_actual: float | None = None
+    # How many consecutive polls have agreed with _pending_actual so
+    # far (not counting the poll that first set it as a candidate).
+    _pending_actual_streak: int = 0
 
     @property
     def unique_id(self) -> str:
@@ -325,23 +338,18 @@ class UponorApiClient:
             chunk = items[i : i + chunk_size]
             values.update(await self.read(chunk))
         for room in rooms:
-            # Actual temperature: a reading that deviates more than
-            # 1°C from the last confirmed value is not applied
-            # immediately - a floor-heated room never changes that
-            # fast in practice, so a bigger jump is usually garbage
-            # data. BUT a single bad reading must not be allowed to
-            # permanently become the new baseline (which would then
-            # reject every future *correct* reading forever, since
-            # they'd all differ from the bad one by more than 1°C -
-            # this happened in practice and required a manual reload
-            # to clear). So a big jump is only accepted once the same
-            # jump (within tolerance of itself) is seen again on the
-            # very next poll - confirming it's a real, sustained
-            # change and not a one-off glitch.
-            room.actual, room._pending_actual = _debounce_temperature(
-                room.actual,
-                room._pending_actual,
-                _as_temperature(values.get(room.actual_id)),
+            # Actual temperature: see _debounce_temperature and the
+            # ACTUAL_JUMP_THRESHOLD/ACTUAL_JUMP_CONFIRMATIONS constants
+            # above for the exact rules - a small change applies
+            # immediately, a bigger jump needs several consecutive,
+            # mutually consistent readings before it's accepted.
+            room.actual, room._pending_actual, room._pending_actual_streak = (
+                _debounce_temperature(
+                    room.actual,
+                    room._pending_actual,
+                    room._pending_actual_streak,
+                    _as_temperature(values.get(room.actual_id)),
+                )
             )
 
             # Setpoint: reject values outside the room's own min/max
@@ -464,29 +472,40 @@ def _debounce_bool(
 
 
 def _debounce_temperature(
-    current: float | None, pending: float | None, new: float | None
-) -> tuple[float | None, float | None]:
-    """Like _debounce_bool, but for the actual (measured) temperature.
+    current: float | None,
+    pending: float | None,
+    pending_streak: int,
+    new: float | None,
+) -> tuple[float | None, float | None, int]:
+    """Like _debounce_bool, but for the actual (measured) temperature,
+    with a configurable threshold and confirmation count (see
+    ACTUAL_JUMP_THRESHOLD / ACTUAL_JUMP_CONFIRMATIONS).
 
-    A small change (within 1°C of the current confirmed value) is
-    applied immediately. A bigger jump is held as a candidate and
-    only confirmed once a *second*, consistent reading (within 1°C of
-    the candidate, not the old value) shows up on the next poll -
-    otherwise a single glitch could permanently lock the sensor onto
-    a wrong value, since every future correct reading would then look
-    like "too big a jump" relative to that wrong value.
+    A small change (within ACTUAL_JUMP_THRESHOLD of the current
+    confirmed value) is applied immediately, resetting any
+    in-progress streak. A bigger jump only becomes the new confirmed
+    value once ACTUAL_JUMP_CONFIRMATIONS additional, mutually
+    consistent readings (each within ACTUAL_JUMP_THRESHOLD of the
+    evolving candidate) have been seen in a row - a single glitch, or
+    even a short run of a few consecutive glitches, is not enough.
 
-    Returns (new_confirmed_value, new_candidate).
+    Returns (new_confirmed_value, new_candidate, new_streak).
     """
     if new is None:
-        return current, pending  # unknown/unparseable response - no change
+        return current, pending, pending_streak  # unknown/unparseable - no change
     if current is None:
-        return new, None  # first ever reading - nothing to compare against
-    if abs(new - current) <= 1.0:
-        return new, None  # small, plausible change - apply immediately
-    if pending is not None and abs(new - pending) <= 1.0:
-        return new, None  # confirmed by two consecutive similar readings
-    return current, new  # new, unconfirmed candidate
+        return new, None, 0  # first ever reading - nothing to compare against
+    if abs(new - current) <= ACTUAL_JUMP_THRESHOLD:
+        return new, None, 0  # small, plausible change - apply immediately
+
+    # Big jump: does it match the ongoing candidate streak?
+    if pending is not None and abs(new - pending) <= ACTUAL_JUMP_THRESHOLD:
+        streak = pending_streak + 1
+        if streak >= ACTUAL_JUMP_CONFIRMATIONS:
+            return new, None, 0  # confirmed after enough consistent readings
+        return current, new, streak  # streak continues, track the latest value
+    # New, unrelated candidate - streak restarts
+    return current, new, 0
 
 
 def _as_bool(value: object) -> bool | None:
