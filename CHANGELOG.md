@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/),
 and the project aims for [Semantic Versioning](https://semver.org/).
 
+## [1.5.6] - 2026-09-22
+
+### Changed
+- **The actual-temperature debounce (1.5.4) needed strengthening.**
+  Real-world data showed a room's temperature graph with six sharp,
+  self-recovering "dips" over 24 hours - each one was actually two
+  separate pairs of consecutive glitches confirming each other (the
+  1.5.4 debounce required only two consecutive matching readings to
+  accept a jump), happening far more often on this device than
+  expected. Two changes:
+  - The jump threshold is now **0.5°C** (was 1°C) - smaller
+    deviations are also treated as needing confirmation, not just
+    large ones.
+  - A jump now needs **5 consecutive, mutually consistent readings**
+    (was 2) before it's accepted as real. At the default 60-second
+    scan interval this adds about 5 minutes of delay before a
+    genuinely fast temperature change is reflected, in exchange for
+    being far more resistant to strings of consecutive glitches.
+
 ## [1.5.5] - 2026-09-17
 
 ### Note
