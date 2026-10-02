@@ -4,6 +4,41 @@ All notable changes to this project are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/),
 and the project aims for [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] - 2026-10-02
+
+### Changed
+- **New root cause for the temperature "dips", found inside the
+  R-167 itself.** The device keeps its own temperature log per room
+  (`/mnt/UserFS/log/Room temperature ch_uX_zY_cmd40.log`, one value
+  every 20 minutes). Decoding a week of those logs showed the same
+  bad values Home Assistant sees - so the mix-up happens inside the
+  device (between the R-167 and the X-165 controller bus, or in the
+  device's own `platform` software), not in the JSON-RPC API or this
+  integration. About 9% of the logged samples were isolated wrong
+  values, and in most cases the wrong value was the *current, real*
+  temperature of the zone the device polls right after that room
+  (sometimes two zones after, or the one before) - an off-by-one
+  request/response mix-up. This also means the 1.6.0 diagnosis
+  (large batched requests) was wrong; per-room requests are kept
+  since they're harmless.
+- **The 5-confirmation debounce (1.5.6) is replaced by a "neighbour
+  zone" filter** for the actual temperature:
+  - A change of at most **0.2 °C** is applied immediately.
+  - A bigger jump is also applied immediately, **unless** it matches
+    (within 0.05 °C) the latest raw value of one of the neighbouring
+    zones in the device's poll order (next, next-but-one, previous,
+    wrapping around). Such a value is ignored and the previous value
+    is kept.
+  - If a "neighbour-looking" value keeps coming back for **45
+    minutes**, it's accepted anyway, covering the rare case where a
+    room genuinely ends up at exactly its neighbour's temperature.
+  - Real temperature changes are no longer delayed by ~5 minutes.
+- Replaying the device's own week-long log through the new filter
+  removed about 77% of the isolated wrong values (412 → 95). The rest
+  mostly can't be matched to a neighbour at the log's 20-minute
+  resolution; at the integration's 60-second poll interval the match
+  rate is expected to be higher.
+
 ## [1.6.0] - 2026-09-22
 
 ### Fixed
