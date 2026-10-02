@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from dataclasses import dataclass, field
 
 import aiohttp
@@ -36,26 +37,42 @@ class UponorApiError(Exception):
 DISCOVERY_MAX_ATTEMPTS = 5
 DISCOVERY_RETRY_DELAY = 10  # seconds
 
-# For the actual (measured) temperature: a change bigger than this
-# (in °C) is treated as a "jump" that needs confirmation rather than
-# applied immediately. Real-world testing showed that even a couple
-# of consecutive glitches confirming each other happens often enough
-# on some devices to be a nuisance - so a jump now needs this many
-# consecutive, mutually consistent readings in a row before it's
-# accepted as real, not just one.
-ACTUAL_JUMP_THRESHOLD = 0.5  # °C
-ACTUAL_JUMP_CONFIRMATIONS = 5
+# Actual (measured) temperature - the "neighbour zone" filter.
+#
+# Background: the R-167's own internal temperature logs
+# (/mnt/UserFS/log/Room temperature ch_uX_zY_cmd40.log) contain the
+# same bad values Home Assistant sees, so the problem is inside the
+# device, not in the API or this integration. In those logs a room
+# that shows a wrong value almost always shows the *current, real*
+# temperature of the zone the device polls right after it (sometimes
+# two zones after, or the one before) - a classic off-by-one
+# request/response mix-up on the device's internal bus. Rooms are
+# polled in ascending zone order, which is the same order as our
+# room list (ascending settings_start), wrapping around at the end.
+#
+# The filter:
+#   1. A change of at most ACTUAL_JUMP_THRESHOLD from the current
+#      value is applied immediately (normal drift).
+#   2. A bigger jump is applied immediately too - UNLESS the new value
+#      matches (within NEIGHBOR_MATCH_TOLERANCE) the latest raw value
+#      of one of the neighbouring zones listed in NEIGHBOR_OFFSETS. In
+#      that case it's treated as a borrowed value and ignored.
+#   3. If such a "borrowed-looking" value keeps coming back for
+#      NEIGHBOR_HOLD_SECONDS, it's accepted anyway. This covers the
+#      rare case where a room genuinely jumps to exactly the same
+#      temperature as its neighbour. The hold time is deliberately
+#      longer than the longest bad episode seen in the device logs.
+ACTUAL_JUMP_THRESHOLD = 0.2  # °C
+NEIGHBOR_MATCH_TOLERANCE = 0.05  # °C
+NEIGHBOR_OFFSETS = (1, 2, -1)  # positions relative to the room in poll order
+NEIGHBOR_HOLD_SECONDS = 45 * 60
 
 # During the regular poll: how long to pause between each room's own
-# request. Real-world testing found that a *value from one room*
-# occasionally showed up under a *different room's* id when many
-# rooms' fields were bundled into one large batched request (up to 40
-# objects at once) - almost certainly the device's own weak embedded
-# server occasionally mixing up which value belongs to which id under
-# that load. Querying one room at a time, with a short pause between
-# each, means a single request only ever contains that one room's own
-# objects, so there's nothing from another room for the device to mix
-# it up with.
+# request. Each request only contains one room's objects. (This was
+# introduced in 1.6.0 on the assumption that large batched requests
+# caused the mix-ups; the device's own logs later showed the mix-ups
+# happen inside the device regardless. Per-room requests are kept
+# since they're harmless and keep each request small.)
 ROOM_POLL_DELAY = 1.0  # seconds
 
 
@@ -85,15 +102,11 @@ class Room:
     _pending_rf_alarm: bool | None = None
     _pending_battery_alarm: bool | None = None
 
-    # Unconfirmed candidate for a large actual-temperature jump (see
-    # the actual-temperature handling in refresh_rooms). Prevents a
-    # single bad reading from permanently "locking in" as the new
-    # baseline and blocking all future correct readings that differ
-    # from it by more than the normal tolerance.
+    # Actual temperature that was held back because it matched a
+    # neighbouring zone (see the neighbour zone filter above), and
+    # when that candidate was first seen (time.monotonic()).
     _pending_actual: float | None = None
-    # How many consecutive polls have agreed with _pending_actual so
-    # far (not counting the poll that first set it as a candidate).
-    _pending_actual_streak: int = 0
+    _pending_actual_since: float | None = None
 
     @property
     def unique_id(self) -> str:
@@ -159,6 +172,14 @@ class UponorApiClient:
 
     _next_id: int = field(default=1, init=False, repr=False)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
+    # All known rooms' settings_start, in the device's poll order
+    # (ascending), and the latest raw (unfiltered) actual temperature
+    # read for each. Used by the neighbour zone filter - also when only
+    # a single room is refreshed (e.g. the fast confirmation after a
+    # setpoint change), in which case the neighbours' values come from
+    # the most recent full poll.
+    _room_order: list[int] = field(default_factory=list, init=False, repr=False)
+    _raw_actual: dict[int, float] = field(default_factory=dict, init=False, repr=False)
 
     @property
     def url(self) -> str:
@@ -272,6 +293,10 @@ class UponorApiClient:
             rooms, garbage_detected = await self._discover_once()
             last_room_count = len(rooms)
             if rooms and not garbage_detected:
+                self._room_order = sorted(r.settings_start for r in rooms)
+                self._raw_actual = {
+                    r.settings_start: r.actual for r in rooms if r.actual is not None
+                }
                 return rooms
             if attempt < DISCOVERY_MAX_ATTEMPTS - 1:
                 await asyncio.sleep(DISCOVERY_RETRY_DELAY)
@@ -329,17 +354,34 @@ class UponorApiClient:
             )
         return rooms, garbage_detected
 
+    def _neighbor_raw_actuals(self, room: Room) -> list[float]:
+        """Latest raw actual temperatures of the zones around this room
+        in the device's poll order (see NEIGHBOR_OFFSETS), wrapping
+        around at the ends. The room itself is never included."""
+        order = self._room_order
+        if room.settings_start not in order or len(order) < 2:
+            return []
+        index = order.index(room.settings_start)
+        neighbors: list[float] = []
+        for offset in NEIGHBOR_OFFSETS:
+            other = order[(index + offset) % len(order)]
+            if other == room.settings_start:
+                continue
+            value = self._raw_actual.get(other)
+            if value is not None:
+                neighbors.append(value)
+        return neighbors
+
     async def refresh_rooms(self, rooms: list[Room]) -> None:
         """Update actual/setpoint/status/alarms (not min/max/name) for
         already known rooms - one room at a time, with a short pause
         between each (see ROOM_POLL_DELAY).
 
-        Each room's request only ever contains that room's own
-        objects, so the device has nothing from another room to mix
-        it up with. This directly addresses a confirmed real-world
-        case where a value from one room appeared under a different
-        room's id when many rooms were bundled into one large request.
+        All rooms are read first, and only then filtered, so the
+        neighbour zone filter compares each room against its
+        neighbours' raw values from the same poll.
         """
+        read_values: list[tuple[Room, dict[int, object]]] = []
         for index, room in enumerate(rooms):
             items: list[tuple[int, str]] = [
                 (room.actual_id, "85"),
@@ -353,66 +395,74 @@ class UponorApiClient:
                 (room.battery_alarm_id, self.ALARM_PROPERTY),
             ]
             values = await self.read(items)
-
-            # Actual temperature: see _debounce_temperature and the
-            # ACTUAL_JUMP_THRESHOLD/ACTUAL_JUMP_CONFIRMATIONS constants
-            # above for the exact rules - a small change applies
-            # immediately, a bigger jump needs several consecutive,
-            # mutually consistent readings before it's accepted.
-            room.actual, room._pending_actual, room._pending_actual_streak = (
-                _debounce_temperature(
-                    room.actual,
-                    room._pending_actual,
-                    room._pending_actual_streak,
-                    _as_temperature(values.get(room.actual_id)),
-                )
-            )
-
-            # Setpoint: reject values outside the room's own min/max
-            # limits (fetched once at startup) - e.g. -17.8°C would be
-            # caught here even though it passes the general 5-40°C
-            # filter meant for a different room with wider limits.
-            new_setpoint = _as_temperature(values.get(room.setpoint_id))
-            if new_setpoint is not None:
-                within_limits = True
-                if room.min_temp is not None and new_setpoint < room.min_temp:
-                    within_limits = False
-                if room.max_temp is not None and new_setpoint > room.max_temp:
-                    within_limits = False
-                if within_limits:
-                    room.setpoint = new_setpoint
-                # otherwise: keep the old, confirmed value
-
-            room.room_in_demand = _as_bool(values.get(room.room_in_demand_id))
-            room.rh_limit = _as_bool(values.get(room.rh_limit_id))
-            room.floor_limit = _as_bool(values.get(room.floor_limit_id))
-
-            # Alarms: require the same value to be seen on two
-            # consecutive polls before it's shown/triggers automations
-            # (see _debounce_bool).
-            room.technical_alarm, room._pending_technical_alarm = _debounce_bool(
-                room.technical_alarm,
-                room._pending_technical_alarm,
-                _as_bool(values.get(room.technical_alarm_id)),
-            )
-            room.tamper_alarm, room._pending_tamper_alarm = _debounce_bool(
-                room.tamper_alarm,
-                room._pending_tamper_alarm,
-                _as_bool(values.get(room.tamper_alarm_id)),
-            )
-            room.rf_alarm, room._pending_rf_alarm = _debounce_bool(
-                room.rf_alarm,
-                room._pending_rf_alarm,
-                _as_bool(values.get(room.rf_alarm_id)),
-            )
-            room.battery_alarm, room._pending_battery_alarm = _debounce_bool(
-                room.battery_alarm,
-                room._pending_battery_alarm,
-                _as_bool(values.get(room.battery_alarm_id)),
-            )
+            read_values.append((room, values))
+            raw_actual = _as_temperature(values.get(room.actual_id))
+            if raw_actual is not None:
+                self._raw_actual[room.settings_start] = raw_actual
 
             if index < len(rooms) - 1:
                 await asyncio.sleep(ROOM_POLL_DELAY)
+
+        now = time.monotonic()
+        for room, values in read_values:
+            self._apply_values(room, values, now)
+
+    def _apply_values(self, room: Room, values: dict[int, object], now: float) -> None:
+        # Actual temperature: neighbour zone filter (see the constants
+        # at the top of this file).
+        room.actual, room._pending_actual, room._pending_actual_since = (
+            _filter_temperature(
+                room.actual,
+                room._pending_actual,
+                room._pending_actual_since,
+                _as_temperature(values.get(room.actual_id)),
+                self._neighbor_raw_actuals(room),
+                now,
+            )
+        )
+
+        # Setpoint: reject values outside the room's own min/max
+        # limits (fetched once at startup) - e.g. -17.8°C would be
+        # caught here even though it passes the general 5-40°C
+        # filter meant for a different room with wider limits.
+        new_setpoint = _as_temperature(values.get(room.setpoint_id))
+        if new_setpoint is not None:
+            within_limits = True
+            if room.min_temp is not None and new_setpoint < room.min_temp:
+                within_limits = False
+            if room.max_temp is not None and new_setpoint > room.max_temp:
+                within_limits = False
+            if within_limits:
+                room.setpoint = new_setpoint
+            # otherwise: keep the old, confirmed value
+
+        room.room_in_demand = _as_bool(values.get(room.room_in_demand_id))
+        room.rh_limit = _as_bool(values.get(room.rh_limit_id))
+        room.floor_limit = _as_bool(values.get(room.floor_limit_id))
+
+        # Alarms: require the same value to be seen on two
+        # consecutive polls before it's shown/triggers automations
+        # (see _debounce_bool).
+        room.technical_alarm, room._pending_technical_alarm = _debounce_bool(
+            room.technical_alarm,
+            room._pending_technical_alarm,
+            _as_bool(values.get(room.technical_alarm_id)),
+        )
+        room.tamper_alarm, room._pending_tamper_alarm = _debounce_bool(
+            room.tamper_alarm,
+            room._pending_tamper_alarm,
+            _as_bool(values.get(room.tamper_alarm_id)),
+        )
+        room.rf_alarm, room._pending_rf_alarm = _debounce_bool(
+            room.rf_alarm,
+            room._pending_rf_alarm,
+            _as_bool(values.get(room.rf_alarm_id)),
+        )
+        room.battery_alarm, room._pending_battery_alarm = _debounce_bool(
+            room.battery_alarm,
+            room._pending_battery_alarm,
+            _as_bool(values.get(room.battery_alarm_id)),
+        )
 
 
 _NUMERIC_ONLY = re.compile(r"^[\d.\-]+$")
@@ -490,41 +540,43 @@ def _debounce_bool(
     return current, new  # new, unconfirmed candidate
 
 
-def _debounce_temperature(
+def _filter_temperature(
     current: float | None,
     pending: float | None,
-    pending_streak: int,
+    pending_since: float | None,
     new: float | None,
-) -> tuple[float | None, float | None, int]:
-    """Like _debounce_bool, but for the actual (measured) temperature,
-    with a configurable threshold and confirmation count (see
-    ACTUAL_JUMP_THRESHOLD / ACTUAL_JUMP_CONFIRMATIONS).
+    neighbors: list[float],
+    now: float,
+) -> tuple[float | None, float | None, float | None]:
+    """Neighbour zone filter for the actual (measured) temperature -
+    see the constants at the top of this file for the background.
 
-    A small change (within ACTUAL_JUMP_THRESHOLD of the current
-    confirmed value) is applied immediately, resetting any
-    in-progress streak. A bigger jump only becomes the new confirmed
-    value once ACTUAL_JUMP_CONFIRMATIONS additional, mutually
-    consistent readings (each within ACTUAL_JUMP_THRESHOLD of the
-    evolving candidate) have been seen in a row - a single glitch, or
-    even a short run of a few consecutive glitches, is not enough.
-
-    Returns (new_confirmed_value, new_candidate, new_streak).
+    Returns (new_value, new_candidate, new_candidate_since).
     """
     if new is None:
-        return current, pending, pending_streak  # unknown/unparseable - no change
+        return current, pending, pending_since  # unknown/unparseable - no change
     if current is None:
-        return new, None, 0  # first ever reading - nothing to compare against
+        return new, None, None  # first ever reading - nothing to compare against
     if abs(new - current) <= ACTUAL_JUMP_THRESHOLD:
-        return new, None, 0  # small, plausible change - apply immediately
+        return new, None, None  # normal drift - apply immediately
 
-    # Big jump: does it match the ongoing candidate streak?
-    if pending is not None and abs(new - pending) <= ACTUAL_JUMP_THRESHOLD:
-        streak = pending_streak + 1
-        if streak >= ACTUAL_JUMP_CONFIRMATIONS:
-            return new, None, 0  # confirmed after enough consistent readings
-        return current, new, streak  # streak continues, track the latest value
-    # New, unrelated candidate - streak restarts
-    return current, new, 0
+    borrowed = any(
+        abs(new - neighbor) <= NEIGHBOR_MATCH_TOLERANCE for neighbor in neighbors
+    )
+    if not borrowed:
+        return new, None, None  # a real jump - apply immediately
+
+    # Looks like a neighbour's value. Keep the current value, but
+    # remember how long this candidate has been around.
+    if (
+        pending is not None
+        and pending_since is not None
+        and abs(new - pending) <= ACTUAL_JUMP_THRESHOLD
+    ):
+        if now - pending_since >= NEIGHBOR_HOLD_SECONDS:
+            return new, None, None  # persisted long enough - accept it
+        return current, new, pending_since
+    return current, new, now  # new candidate
 
 
 def _as_bool(value: object) -> bool | None:
